@@ -14,6 +14,7 @@ import { Publisher } from './publisher.entity.js';
 import { Volume } from './volume.entity.js';
 
 @Entity('editions')
+@Index('IDX_editions_manga_publisher_unique', ['mangaId', 'publisherId'], { unique: true })
 export class Edition {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

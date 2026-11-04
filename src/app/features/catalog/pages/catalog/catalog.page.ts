@@ -2,15 +2,16 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   signal,
-  effect,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router, type ParamMap } from '@angular/router';
 import { MANGA_REPOSITORY } from '../../../../core/data/manga.repository';
 import type { Manga } from '../../models/manga.model';
 import { MangaCardComponent } from '../../components/manga-card/manga-card.component';
+import type { CatalogFacets } from '../../models/catalog-query.model';
 
 @Component({
   selector: 'app-catalog-page',
@@ -24,95 +25,154 @@ export class CatalogPageComponent {
   private readonly repo = inject(MANGA_REPOSITORY);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private requestId = 0;
 
   readonly mangas = signal<readonly Manga[]>([]);
+  readonly pagination = signal({ page: 1, limit: 24, total: 0, totalPages: 0 });
+  readonly facets = signal<CatalogFacets>({ categories: [], statuses: [], publishers: [] });
   readonly query = signal('');
   readonly category = signal('');
   readonly publisher = signal('');
-  readonly sort = signal<'title_asc' | 'title_desc' | 'recent' | 'oldest'>('title_asc');
+  readonly status = signal('');
+  readonly yearFrom = signal('');
+  readonly yearTo = signal('');
+  readonly volumesMin = signal('');
+  readonly volumesMax = signal('');
+  readonly hasPrice = signal('');
+  readonly upcoming = signal('');
+  readonly hasCover = signal('');
+  readonly sort = signal('title_asc');
   readonly page = signal(1);
-  readonly pageSize = signal(12);
-
-  readonly volumeCount = computed(() => this.mangas().reduce((n, m) => n + m.volumes.length, 0));
-
-  readonly categories = computed(() => [...new Set(this.mangas().map((m) => m.category))].sort());
-
-  readonly publishers = computed(() => [...new Set(this.mangas().map((m) => m.publisher))].sort());
-
-  readonly filtered = computed(() => {
-    let list = this.mangas().filter(
-      (m) =>
-        (!this.category() || m.category === this.category()) &&
-        (!this.publisher() || m.publisher === this.publisher()) &&
-        `${m.title} ${m.author ?? ''} ${m.publisher}`
-          .toLocaleLowerCase('pt-BR')
-          .includes(this.query().toLocaleLowerCase('pt-BR')),
-    );
-
-    // Ordenação
-    switch (this.sort()) {
-      case 'title_desc':
-        list = [...list].sort((a, b) => b.title.localeCompare(a.title, 'pt-BR'));
-        break;
-      case 'recent':
-        list = [...list].reverse();
-        break;
-      case 'title_asc':
-      default:
-        list = [...list].sort((a, b) => a.title.localeCompare(b.title, 'pt-BR'));
-        break;
-    }
-
-    return list;
-  });
-
-  readonly totalPages = computed(() =>
-    Math.max(1, Math.ceil(this.filtered().length / this.pageSize())),
+  readonly loading = signal(true);
+  readonly error = signal('');
+  readonly activeFilters = computed(() =>
+    [
+      this.query() && `Busca: ${this.query()}`,
+      this.publisher() && `Editora: ${this.publisher()}`,
+      this.category() && `Categoria: ${this.category()}`,
+      this.status() && `Situação: ${this.status()}`,
+      this.yearFrom() && `Ano desde: ${this.yearFrom()}`,
+      this.yearTo() && `Ano até: ${this.yearTo()}`,
+      this.volumesMin() && `Volumes desde: ${this.volumesMin()}`,
+      this.volumesMax() && `Volumes até: ${this.volumesMax()}`,
+      this.hasPrice() && (this.hasPrice() === 'true' ? 'Com preço' : 'Sem preço'),
+      this.upcoming() && 'Com próximos lançamentos',
+      this.hasCover() && (this.hasCover() === 'true' ? 'Com capa' : 'Sem capa'),
+    ].filter((value): value is string => Boolean(value)),
   );
 
-  readonly paginated = computed(() => {
-    const start = (this.page() - 1) * this.pageSize();
-    return this.filtered().slice(start, start + this.pageSize());
-  });
-
   constructor() {
-    // 1. Sincronização inicial com Query Params da URL
-    this.route.queryParams.subscribe((params) => {
-      if (params['q']) this.query.set(params['q']);
-      if (params['category']) this.category.set(params['category']);
-      if (params['publisher']) this.publisher.set(params['publisher']);
-      if (params['sort']) this.sort.set(params['sort']);
-      if (params['page']) this.page.set(parseInt(params['page'], 10) || 1);
+    this.readQueryParams(this.route.snapshot.queryParamMap);
+    this.route.queryParamMap.subscribe((params) => this.readQueryParams(params));
+    void this.repo
+      .getFacets()
+      .then((value) => this.facets.set(value))
+      .catch(() => undefined);
+
+    effect((onCleanup) => {
+      const filters = {
+        search: this.query(),
+        publisher: this.publisher(),
+        category: this.category(),
+        status: this.status(),
+        yearFrom: this.yearFrom(),
+        yearTo: this.yearTo(),
+        volumesMin: this.volumesMin(),
+        volumesMax: this.volumesMax(),
+        hasPrice: this.hasPrice(),
+        upcoming: this.upcoming(),
+        hasCover: this.hasCover(),
+        sort: this.sort(),
+        page: String(this.page()),
+        limit: '24',
+      };
+      const requestId = ++this.requestId;
+      this.loading.set(true);
+      const timeout = setTimeout(() => {
+        const params = Object.fromEntries(
+          Object.entries(filters).filter(([, value]) => Boolean(value)),
+        );
+        void this.repo
+          .search(params)
+          .then((result) => {
+            if (requestId !== this.requestId) return;
+            this.mangas.set(result.data);
+            this.pagination.set(result.pagination);
+            this.error.set('');
+          })
+          .catch((error: unknown) => {
+            if (requestId === this.requestId)
+              this.error.set(
+                error instanceof Error ? error.message : 'Erro ao carregar o catálogo.',
+              );
+          })
+          .finally(() => {
+            if (requestId === this.requestId) this.loading.set(false);
+          });
+      }, 300);
+      onCleanup(() => clearTimeout(timeout));
     });
+  }
 
-    // 2. Efeito para refletir alterações nos query params
-    effect(() => {
-      const q = this.query();
-      const cat = this.category();
-      const pub = this.publisher();
-      const s = this.sort();
-      const p = this.page();
+  readonly totalPages = computed(() => this.pagination().totalPages);
+  readonly volumeCount = computed(() =>
+    this.mangas().reduce((total, manga) => total + (manga.volumesCount ?? manga.volumes.length), 0),
+  );
 
-      void this.router.navigate([], {
-        relativeTo: this.route,
-        queryParams: {
-          q: q || null,
-          category: cat || null,
-          publisher: pub || null,
-          sort: s !== 'title_asc' ? s : null,
-          page: p > 1 ? p : null,
-        },
-        queryParamsHandling: 'merge',
-        replaceUrl: true,
-      });
-    });
-
-    void this.repo.list().then((items) => this.mangas.set(items));
+  setSearch(value: string): void {
+    this.query.set(value);
+    this.changeFilter();
+  }
+  setPublisher(value: string): void {
+    this.publisher.set(value);
+    this.changeFilter();
+  }
+  setCategory(value: string): void {
+    this.category.set(value);
+    this.changeFilter();
+  }
+  setStatus(value: string): void {
+    this.status.set(value);
+    this.changeFilter();
+  }
+  setSort(value: string): void {
+    this.sort.set(value);
+    this.page.set(1);
+    this.syncUrl();
+  }
+  setYearFrom(value: string): void {
+    this.yearFrom.set(value);
+    this.changeFilter();
+  }
+  setYearTo(value: string): void {
+    this.yearTo.set(value);
+    this.changeFilter();
+  }
+  setVolumesMin(value: string): void {
+    this.volumesMin.set(value);
+    this.changeFilter();
+  }
+  setVolumesMax(value: string): void {
+    this.volumesMax.set(value);
+    this.changeFilter();
+  }
+  setHasPrice(value: string): void {
+    this.hasPrice.set(value);
+    this.changeFilter();
+  }
+  setUpcoming(value: string): void {
+    this.upcoming.set(value);
+    this.changeFilter();
+  }
+  setHasCover(value: string): void {
+    this.hasCover.set(value);
+    this.changeFilter();
   }
 
   setPage(newPage: number): void {
     if (newPage >= 1 && newPage <= this.totalPages()) {
       this.page.set(newPage);
+      this.syncUrl();
     }
   }
 
@@ -120,7 +180,60 @@ export class CatalogPageComponent {
     this.query.set('');
     this.category.set('');
     this.publisher.set('');
+    this.status.set('');
+    this.yearFrom.set('');
+    this.yearTo.set('');
+    this.volumesMin.set('');
+    this.volumesMax.set('');
+    this.hasPrice.set('');
+    this.upcoming.set('');
+    this.hasCover.set('');
     this.sort.set('title_asc');
     this.page.set(1);
+    this.syncUrl();
+  }
+
+  private changeFilter(): void {
+    this.page.set(1);
+    this.syncUrl();
+  }
+
+  private readQueryParams(params: ParamMap): void {
+    this.query.set(params.get('q') ?? '');
+    this.category.set(params.get('category') ?? '');
+    this.publisher.set(params.get('publisher') ?? '');
+    this.status.set(params.get('status') ?? '');
+    this.yearFrom.set(params.get('yearFrom') ?? '');
+    this.yearTo.set(params.get('yearTo') ?? '');
+    this.volumesMin.set(params.get('volumesMin') ?? '');
+    this.volumesMax.set(params.get('volumesMax') ?? '');
+    this.hasPrice.set(params.get('hasPrice') ?? '');
+    this.upcoming.set(params.get('upcoming') ?? '');
+    this.hasCover.set(params.get('hasCover') ?? '');
+    this.sort.set(params.get('sort') ?? 'title_asc');
+    this.page.set(Math.max(1, Number(params.get('page') ?? 1)));
+  }
+
+  private syncUrl(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        q: this.query() || null,
+        category: this.category() || null,
+        publisher: this.publisher() || null,
+        status: this.status() || null,
+        yearFrom: this.yearFrom() || null,
+        yearTo: this.yearTo() || null,
+        volumesMin: this.volumesMin() || null,
+        volumesMax: this.volumesMax() || null,
+        hasPrice: this.hasPrice() || null,
+        upcoming: this.upcoming() || null,
+        hasCover: this.hasCover() || null,
+        sort: this.sort() === 'title_asc' ? null : this.sort(),
+        page: this.page() > 1 ? this.page() : null,
+      },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 }

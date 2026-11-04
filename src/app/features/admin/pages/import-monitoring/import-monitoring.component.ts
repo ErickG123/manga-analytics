@@ -3,49 +3,14 @@ import { CommonModule } from '@angular/common';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { AdminAuthService } from '../../../../core/services/admin-auth.service';
-
-interface AdminStats {
-  jobs: {
-    total: number;
-    successful: number;
-    failed: number;
-    running: number;
-    lastJob?: {
-      id: string;
-      sourceId: string;
-      status: string;
-      startedAt: string;
-      recordsProcessed: number;
-    };
-  };
-  quality: {
-    openIssues: number;
-    errorIssues: number;
-  };
-}
-
-interface ImportJobItem {
-  id: string;
-  sourceId: string;
-  status: string;
-  recordsProcessed: number;
-  recordsCreated: number;
-  recordsUpdated: number;
-  recordsFailed: number;
-  startedAt: string;
-  completedAt?: string;
-}
-
-interface QualityIssueItem {
-  id: string;
-  entityType: string;
-  entityId: string;
-  ruleCode: string;
-  severity: string;
-  status: string;
-  message: string;
-  detectedAt: string;
-}
+import { environment } from '../../../../../environments/environment';
+import type {
+  AdminPage,
+  AdminPagination,
+  AdminStats,
+  ImportJobItem,
+  QualityIssueItem,
+} from '../../models/import-monitoring.model';
 
 @Component({
   selector: 'app-import-monitoring',
@@ -59,10 +24,15 @@ export class ImportMonitoringComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly authService = inject(AdminAuthService);
   private readonly router = inject(Router);
+  private readonly adminApiUrl = environment.adminApiUrl;
 
   readonly stats = signal<AdminStats | null>(null);
   readonly jobs = signal<ImportJobItem[]>([]);
   readonly qualityIssues = signal<QualityIssueItem[]>([]);
+  readonly jobsPage = signal(1);
+  readonly jobsMeta = signal<AdminPagination>({ page: 1, limit: 10, total: 0, totalPages: 0 });
+  readonly issuesPage = signal(1);
+  readonly issuesMeta = signal<AdminPagination>({ page: 1, limit: 10, total: 0, totalPages: 0 });
   readonly isLoading = signal(false);
   readonly actionMessage = signal<string | null>(null);
 
@@ -91,7 +61,7 @@ export class ImportMonitoringComponent implements OnInit {
       Authorization: `Bearer ${token}`,
     });
 
-    this.http.get<AdminStats>('/api/admin/stats', { headers }).subscribe({
+    this.http.get<AdminStats>(`${this.adminApiUrl}/stats`, { headers }).subscribe({
       next: (data) => this.stats.set(data),
       error: (err) => {
         if (err.status === 401) {
@@ -101,16 +71,27 @@ export class ImportMonitoringComponent implements OnInit {
       },
     });
 
-    this.http.get<{ items: ImportJobItem[] }>('/api/admin/jobs?limit=10', { headers }).subscribe({
-      next: (res) => this.jobs.set(res.items || []),
-      error: (err) => console.error('Erro ao buscar jobs admin:', err),
-    });
+    this.http
+      .get<AdminPage<ImportJobItem>>(`${this.adminApiUrl}/jobs?page=${this.jobsPage()}&limit=10`, {
+        headers,
+      })
+      .subscribe({
+        next: (res) => {
+          this.jobs.set(res.items || []);
+          this.jobsMeta.set(res.meta);
+        },
+        error: (err) => console.error('Erro ao buscar jobs admin:', err),
+      });
 
     this.http
-      .get<{ items: QualityIssueItem[] }>('/api/admin/quality-issues?limit=10', { headers })
+      .get<AdminPage<QualityIssueItem>>(
+        `${this.adminApiUrl}/quality-issues?page=${this.issuesPage()}&limit=10`,
+        { headers },
+      )
       .subscribe({
         next: (res) => {
           this.qualityIssues.set(res.items || []);
+          this.issuesMeta.set(res.meta);
           this.isLoading.set(false);
         },
         error: (err) => {
@@ -118,6 +99,18 @@ export class ImportMonitoringComponent implements OnInit {
           this.isLoading.set(false);
         },
       });
+  }
+
+  setJobsPage(page: number): void {
+    if (page < 1 || page > this.jobsMeta().totalPages || page === this.jobsPage()) return;
+    this.jobsPage.set(page);
+    this.loadData();
+  }
+
+  setIssuesPage(page: number): void {
+    if (page < 1 || page > this.issuesMeta().totalPages || page === this.issuesPage()) return;
+    this.issuesPage.set(page);
+    this.loadData();
   }
 
   triggerSync(): void {
@@ -130,7 +123,7 @@ export class ImportMonitoringComponent implements OnInit {
 
     this.actionMessage.set('Disparando sincronização em background...');
     this.http
-      .post<{ message: string }>('/api/admin/jobs/trigger', { limit: 10 }, { headers })
+      .post<{ message: string }>(`${this.adminApiUrl}/jobs/trigger`, { limit: 10 }, { headers })
       .subscribe({
         next: (res) => {
           this.actionMessage.set(res.message);
@@ -152,7 +145,7 @@ export class ImportMonitoringComponent implements OnInit {
     });
 
     this.http
-      .patch(`/api/admin/quality-issues/${id}`, { status: 'resolved' }, { headers })
+      .patch(`${this.adminApiUrl}/quality-issues/${id}`, { status: 'resolved' }, { headers })
       .subscribe({
         next: () => {
           this.qualityIssues.update((issues) =>

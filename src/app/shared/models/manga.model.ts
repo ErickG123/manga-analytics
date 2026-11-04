@@ -12,11 +12,14 @@ export interface Manga {
   accent: string;
   initials: string;
   coverUrl?: string | null;
+  volumesCount?: number;
+  updatedAt?: string;
+  editions?: { id: string; name: string; format: string; status: string; publisher: string }[];
   volumes: Volume[];
   sourceUrl?: string;
-  updatedAt?: string;
+  sourceUpdatedAt?: string;
 }
 
-export type { Volume } from './volume.model';
+export type { Volume, VolumeVariant } from './volume.model';
 export type { ReleaseDate, ReleaseStatus, DatePrecision } from './release-date.model';
 export type { PriceObservation } from './price-observation.model';

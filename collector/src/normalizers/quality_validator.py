@@ -1,7 +1,7 @@
 """Módulo de validação de regras de qualidade e rastreabilidade de dados."""
 
-from decimal import Decimal
 import re
+from decimal import Decimal
 from typing import Any
 
 
@@ -49,7 +49,10 @@ def validate_isbn(isbn: str | None) -> tuple[bool, str]:
         calculated_check = (10 - (total % 10)) % 10
         if int(cleaned[12]) == calculated_check:
             return True, "ISBN-13 válido"
-        return False, f"Dígito verificador do ISBN-13 inválido (esperado {calculated_check})"
+        return (
+            False,
+            f"Dígito verificador do ISBN-13 inválido (esperado {calculated_check})",
+        )
 
     return False, f"Tamanho inválido para ISBN: {len(cleaned)} caracteres"
 
@@ -84,4 +87,8 @@ def validate_release_date(raw_date: str | None) -> dict[str, Any]:
     if re.match(r"^\d{4}$", raw):
         return {"valid": True, "precision": "year", "reason": "Data parcial (anual)"}
 
-    return {"valid": False, "precision": "unknown", "reason": "Formato de data inválido"}
+    return {
+        "valid": False,
+        "precision": "unknown",
+        "reason": "Formato de data inválido",
+    }

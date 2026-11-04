@@ -6,9 +6,18 @@
     </div>
     <div class="header-actions">
       <button type="button" class="btn-action" (click)="triggerSync()">
-        ⚡ Disparar Sincronização
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="m13 2-9 12h7l-1 8 10-13h-7l1-7Z"></path>
+        </svg>
+        Disparar Sincronização
       </button>
-      <button type="button" class="btn-refresh" (click)="loadData()">↻ Atualizar</button>
+      <button type="button" class="btn-refresh" (click)="loadData()">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M20 7v5h-5M4 17v-5h5"></path>
+          <path d="M5.5 9A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.5-3"></path>
+        </svg>
+        Atualizar
+      </button>
       <button type="button" class="btn-logout" (click)="logout()">Sair</button>
     </div>
   </div>
@@ -43,6 +52,10 @@
   <!-- Tabela de Histórico de Jobs -->
   <div class="panel">
     <h3>Histórico de Importações Recentes</h3>
+    <p class="pagination-summary">
+      {{ jobsMeta().total }} execuções · Página {{ jobsMeta().page }} de
+      {{ jobsMeta().totalPages || 1 }}
+    </p>
     <div class="table-container">
       <table>
         <thead>
@@ -83,11 +96,30 @@
         </tbody>
       </table>
     </div>
+    @if (jobsMeta().totalPages > 1) {
+      <nav class="pagination" aria-label="Paginação do histórico de importações">
+        <button type="button" [disabled]="jobsPage() === 1" (click)="setJobsPage(jobsPage() - 1)">
+          Anterior
+        </button>
+        <span aria-live="polite">Página {{ jobsPage() }} de {{ jobsMeta().totalPages }}</span>
+        <button
+          type="button"
+          [disabled]="jobsPage() === jobsMeta().totalPages"
+          (click)="setJobsPage(jobsPage() + 1)"
+        >
+          Próxima
+        </button>
+      </nav>
+    }
   </div>
 
   <!-- Tabela de Qualidade de Dados -->
   <div class="panel">
     <h3>Inconsistências de Qualidade e Rastreabilidade</h3>
+    <p class="pagination-summary">
+      {{ issuesMeta().total }} inconsistências · Página {{ issuesMeta().page }} de
+      {{ issuesMeta().totalPages || 1 }}
+    </p>
     <div class="table-container">
       <table>
         <thead>
@@ -128,7 +160,14 @@
                     Resolver
                   </button>
                 } @else {
-                  <span class="check-icon">✓</span>
+                  <svg
+                    class="check-icon"
+                    aria-label="Inconsistência resolvida"
+                    role="img"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="m5 12 4 4L19 6"></path>
+                  </svg>
                 }
               </td>
             </tr>
@@ -140,5 +179,24 @@
         </tbody>
       </table>
     </div>
+    @if (issuesMeta().totalPages > 1) {
+      <nav class="pagination" aria-label="Paginação das inconsistências de qualidade">
+        <button
+          type="button"
+          [disabled]="issuesPage() === 1"
+          (click)="setIssuesPage(issuesPage() - 1)"
+        >
+          Anterior
+        </button>
+        <span aria-live="polite">Página {{ issuesPage() }} de {{ issuesMeta().totalPages }}</span>
+        <button
+          type="button"
+          [disabled]="issuesPage() === issuesMeta().totalPages"
+          (click)="setIssuesPage(issuesPage() + 1)"
+        >
+          Próxima
+        </button>
+      </nav>
+    }
   </div>
 </section>

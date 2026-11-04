@@ -14,8 +14,13 @@
   font-size: 0.9rem;
   color: #ccc;
 
-  span {
-    font-size: 1.2rem;
+  .info-icon {
+    width: 1.2rem;
+    height: 1.2rem;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
   }
 }
 
@@ -41,7 +46,11 @@
   color: #888;
 
   .empty-icon {
-    font-size: 3rem;
+    width: 3rem;
+    height: 3rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
     color: #444;
     margin-bottom: 1rem;
   }

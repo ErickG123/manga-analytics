@@ -5,6 +5,7 @@ import {
   Manga,
   Edition,
   Volume,
+  VolumeVariant,
   VolumePrice,
   PriceObservation,
   DataSource as DataSourceEntity,
@@ -14,6 +15,8 @@ import {
 } from '../entities/index.js';
 import dotenv from 'dotenv';
 import path from 'path';
+import { AddCollectorIncrementalState1762264800000 } from '../migrations/1762264800000-AddCollectorIncrementalState.js';
+import { AddVolumeVariants1762272000000 } from '../migrations/1762272000000-AddVolumeVariants.js';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
@@ -31,6 +34,7 @@ export const AppDataSource = new DataSource({
     Manga,
     Edition,
     Volume,
+    VolumeVariant,
     VolumePrice,
     PriceObservation,
     DataSourceEntity,
@@ -38,6 +42,7 @@ export const AppDataSource = new DataSource({
     ImportJob,
     DataQualityIssue,
   ],
-  migrations: [],
+  migrations: [AddCollectorIncrementalState1762264800000, AddVolumeVariants1762272000000],
+  migrationsRun: true,
   subscribers: [],
 });

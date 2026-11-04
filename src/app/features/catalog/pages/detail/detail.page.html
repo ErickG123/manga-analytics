@@ -1,46 +1,184 @@
 <section class="container section">
-  @if (manga(); as item) {
-    <a routerLink="/catalogo" class="back-link">← Voltar ao catálogo</a>
+  @if (loading()) {
+    <p role="status" class="muted">Carregando detalhes da obra…</p>
+  } @else if (manga(); as item) {
+    <a routerLink="/catalogo" class="back-link">Voltar ao catálogo</a>
     <div class="detail-header">
-      <div class="detail-cover" [style.--cover-accent]="item.accent">
-        <span>{{ item.initials }}</span>
-      </div>
+      @if (coverUrl(); as image) {
+        <img
+          class="detail-cover-image"
+          [src]="image"
+          [alt]="'Capa de ' + item.title"
+          (error)="imageFailed.set(true)"
+          referrerpolicy="no-referrer"
+        />
+      } @else {
+        <div
+          class="detail-cover"
+          [style.--cover-accent]="item.accent"
+          aria-label="Capa não disponível"
+        >
+          <span>{{ item.initials }}</span>
+        </div>
+      }
       <div>
         <div class="eyebrow">{{ item.category }} / {{ item.publisher }}</div>
         <h1>{{ item.title }}</h1>
-        <p class="muted">{{ item.description }}</p>
-        <p><strong>Autor:</strong> {{ item.author || 'Não informado' }}</p>
-        <p><strong>Volumes cadastrados:</strong> {{ item.volumes.length }}</p>
-        <div class="notice">
-          Dados ilustrativos. Não representam preços ou lançamentos confirmados.
-        </div>
+        @if (item.originalTitle) {
+          <p class="muted">Título original: {{ item.originalTitle }}</p>
+        }
+        @if (item.description) {
+          <p class="muted">{{ item.description }}</p>
+        }
+        @if (item.author) {
+          <p><strong>Autor:</strong> {{ item.author }}</p>
+        }
+        @if (item.sourceUrl) {
+          <p>
+            <a [href]="item.sourceUrl" target="_blank" rel="noopener noreferrer">Fonte externa</a>
+            @if (item.sourceUpdatedAt) {
+              <span class="muted">
+                · referência cadastrada em {{ item.sourceUpdatedAt | date: 'dd/MM/yyyy' }}</span
+              >
+            }
+          </p>
+        }
+        @if (item.editions?.length) {
+          <p><strong>Situação:</strong> {{ item.editions?.[0]?.status }}</p>
+        }
+        <p><strong>Volumes cadastrados:</strong> {{ item.volumesCount ?? item.volumes.length }}</p>
+        @if (lastRelease(); as last) {
+          <p>
+            <strong>Último lançamento registrado:</strong> {{ last.release.value }} ({{
+              last.release.precision
+            }})
+          </p>
+        }
+        @if (nextRelease(); as next) {
+          <p>
+            <strong>Próximo lançamento previsto:</strong> {{ next.release.value }} ({{
+              next.release.precision
+            }})
+          </p>
+        }
+        @if (item.updatedAt) {
+          <p class="muted">
+            <strong>Cadastro atualizado:</strong> {{ item.updatedAt | date: 'dd/MM/yyyy' }}
+          </p>
+        }
       </div>
     </div>
 
-    <h2>Volumes e preços</h2>
+    <div class="volume-heading">
+      <div>
+        <h2>Volumes e preços</h2>
+        <p class="muted">{{ filteredVolumes().length }} de {{ item.volumes.length }} volumes</p>
+      </div>
+    </div>
+    <div class="volume-filters" aria-label="Filtros dos volumes">
+      <label
+        >Buscar volume ou ISBN<input
+          type="search"
+          [ngModel]="volumeSearch()"
+          (ngModelChange)="volumeSearch.set($event)"
+      /></label>
+      <label
+        >Situação<select [ngModel]="volumeStatus()" (ngModelChange)="volumeStatus.set($event)">
+          <option value="">Todas</option>
+          <option value="released">Lançado</option>
+          <option value="planned">Previsto</option>
+          <option value="unknown">Desconhecido</option>
+        </select></label
+      >
+      <label
+        >Ano<input
+          type="number"
+          min="1900"
+          [ngModel]="volumeYear()"
+          (ngModelChange)="volumeYear.set($event)"
+      /></label>
+      <label
+        >Preço<select [ngModel]="volumeHasPrice()" (ngModelChange)="volumeHasPrice.set($event)">
+          <option value="">Qualquer</option>
+          <option value="true">Informado</option>
+          <option value="false">Não informado</option>
+        </select></label
+      >
+      <label
+        >Ordenar<select [ngModel]="volumeSort()" (ngModelChange)="volumeSort.set($event)">
+          <option value="number_asc">Número</option>
+          <option value="date_asc">Data crescente</option>
+          <option value="date_desc">Data decrescente</option>
+          <option value="price_asc">Preço crescente</option>
+          <option value="price_desc">Preço decrescente</option>
+        </select></label
+      >
+    </div>
     <div class="table-scroll">
       <table class="data-table">
         <thead>
           <tr>
             <th>Volume</th>
-            <th>Data (demo)</th>
+            <th>ISBN</th>
+            <th>Data</th>
             <th>Situação</th>
-            <th>Preço de capa (demo)</th>
+            <th>Preço de capa</th>
           </tr>
         </thead>
         <tbody>
-          @for (v of item.volumes; track v.id) {
+          @for (v of filteredVolumes(); track v.id) {
             <tr>
-              <td>#{{ v.number }}</td>
-              <td>{{ v.release.value || '—' }}</td>
-              <td>{{ v.release.status === 'released' ? 'Lançado' : 'Previsto' }}</td>
+              <td>
+                #{{ v.number
+                }}{{ v.title && v.title !== 'Volume ' + v.number ? ' · ' + v.title : '' }}
+                @if (v.variants?.length) {
+                  <ul class="volume-variants" aria-label="Edições especiais e variantes">
+                    @for (variant of v.variants; track variant.id) {
+                      <li>
+                        <strong>{{ variant.name }}</strong>
+                        @if (variant.release.value) {
+                          <span> · {{ variant.release.value }}</span>
+                        }
+                        @if (variant.coverPriceBrl !== null) {
+                          <span>
+                            ·
+                            {{
+                              variant.coverPriceBrl | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
+                            }}
+                          </span>
+                        }
+                      </li>
+                    }
+                  </ul>
+                }
+              </td>
+              <td>{{ v.isbn13 || 'Não informado' }}</td>
+              <td>
+                {{ v.release.value || 'Não informada' }}
+                <span class="muted"
+                  >({{
+                    v.release.precision === 'day'
+                      ? 'dia'
+                      : v.release.precision === 'month'
+                        ? 'mês'
+                        : v.release.precision === 'year'
+                          ? 'ano'
+                          : 'sem precisão'
+                  }})</span
+                >
+              </td>
+              <td>{{ releaseDescription(v) }}</td>
               <td>
                 {{
                   v.coverPriceBrl === null
-                    ? '—'
+                    ? 'Não informado'
                     : (v.coverPriceBrl | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
                 }}
               </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="5" class="empty-cell">Nenhum volume corresponde aos filtros.</td>
             </tr>
           }
         </tbody>

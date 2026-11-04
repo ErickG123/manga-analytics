@@ -1,9 +1,20 @@
+export interface MangaVolumeVariantDto {
+  id: string;
+  name: string;
+  release: { value: string | null | undefined; precision: string; status: string };
+  coverUrl?: string | null;
+  coverPriceBrl: number | null;
+}
+
 export interface MangaVolumeDto {
   id: string;
   number: number;
-  title: string;
-  price: string;
-  releaseDate?: string;
+  title?: string | null;
+  isbn13?: string | null;
+  coverUrl?: string | null;
+  release: { value: string | null | undefined; precision: string; status: string };
+  coverPriceBrl: number | null;
+  variants: MangaVolumeVariantDto[];
 }
 
 export interface MangaListItemDto {
@@ -19,6 +30,9 @@ export interface MangaListItemDto {
   initials: string;
   coverUrl?: string | null;
   volumesCount: number;
+  updatedAt?: Date;
+  sourceUrl?: string | null;
+  sourceUpdatedAt?: Date | null;
   volumes: MangaVolumeDto[];
 }
 
@@ -39,8 +53,20 @@ export interface MangaQueryParams {
   status?: string;
   yearFrom?: string;
   yearTo?: string;
+  hasPrice?: string;
+  upcoming?: string;
+  hasCover?: string;
+  volumesMin?: string;
+  volumesMax?: string;
+  ids?: string;
   sort?:
-    'title_asc' | 'title_desc' | 'recent' | 'oldest' | 'price_asc' | 'price_desc' | 'volumes_desc';
+    | 'title_asc'
+    | 'title_desc'
+    | 'recent'
+    | 'oldest'
+    | 'volumes_desc'
+    | 'volumes_asc'
+    | 'release_desc';
   page?: string;
   limit?: string;
 }

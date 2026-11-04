@@ -1,5 +1,5 @@
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { CatalogPageComponent } from './catalog.page';
 import { MANGA_REPOSITORY } from '../../../../core/data/manga.repository';
 import type { MangaRepository } from '../../../../core/data/manga.repository';
@@ -8,6 +8,7 @@ import type { Manga } from '../../models/manga.model';
 describe('CatalogPageComponent', () => {
   let fixture: ComponentFixture<CatalogPageComponent>;
   let component: CatalogPageComponent;
+  let router: Router;
 
   const mockMangas: Manga[] = [
     {
@@ -20,11 +21,12 @@ describe('CatalogPageComponent', () => {
       description: 'Fantasia sombria.',
       accent: '#000',
       initials: 'BK',
+      volumesCount: 1,
       volumes: [
         {
           id: 'v-1',
           number: 1,
-          release: { value: '2014-07-01', precision: 'day', status: 'released' },
+          release: { value: '01/07/2014', precision: 'day', status: 'released' },
           coverPriceBrl: 16.9,
         },
       ],
@@ -39,49 +41,75 @@ describe('CatalogPageComponent', () => {
       description: 'Ninjas.',
       accent: '#f97316',
       initials: 'NR',
+      volumesCount: 0,
       volumes: [],
     },
   ];
-
+  const search = vi.fn((filters: Record<string, string>) =>
+    Promise.resolve({
+      data: mockMangas,
+      pagination: { page: Number(filters['page'] ?? 1), limit: 1, total: 2, totalPages: 2 },
+    }),
+  );
   const fakeRepo: MangaRepository = {
     list: () => Promise.resolve(mockMangas),
-    findBySlug: (slug: string) => Promise.resolve(mockMangas.find((m) => m.slug === slug)),
+    search,
+    listByIds: (ids) => Promise.resolve(mockMangas.filter((manga) => ids.includes(manga.id))),
+    getFacets: () =>
+      Promise.resolve({
+        categories: ['Seinen', 'Shonen'],
+        statuses: ['ongoing'],
+        publishers: [{ id: 'p-1', name: 'Panini', slug: 'panini' }],
+      }),
+    findBySlug: (slug) => Promise.resolve(mockMangas.find((manga) => manga.slug === slug)),
   };
 
   beforeEach(async () => {
+    search.mockClear();
     await TestBed.configureTestingModule({
       imports: [CatalogPageComponent],
-      providers: [
-        provideRouter([]),
-        {
-          provide: MANGA_REPOSITORY,
-          useValue: fakeRepo,
-        },
-      ],
+      providers: [provideRouter([]), { provide: MANGA_REPOSITORY, useValue: fakeRepo }],
     }).compileComponents();
-
     fixture = TestBed.createComponent(CatalogPageComponent);
     component = fixture.componentInstance;
+    router = TestBed.inject(Router);
     fixture.detectChanges();
-    await fixture.whenStable();
+    await new Promise((resolve) => setTimeout(resolve, 350));
     fixture.detectChanges();
   });
 
-  it('deve carregar e listar os mangás retornados pelo repositório', () => {
-    expect(component.mangas().length).toBe(2);
-    expect(component.filtered().length).toBe(2);
+  it('carrega uma página do catálogo e usa a contagem do backend', () => {
+    expect(component.mangas()).toHaveLength(2);
+    expect(component.pagination().total).toBe(2);
     expect(component.volumeCount()).toBe(1);
   });
 
-  it('deve filtrar os mangás por texto de busca', () => {
-    component.query.set('Berserk');
-    expect(component.filtered().length).toBe(1);
-    expect(component.filtered()[0].title).toBe('Berserk');
+  it('envia busca e filtros ao backend e mantém filtros na URL', async () => {
+    component.setSearch('Berserk');
+    component.setCategory('Seinen');
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(search).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: 'Berserk', category: 'Seinen', page: '1' }),
+    );
+    expect(router.url).toContain('q=Berserk');
+    expect(router.url).toContain('category=Seinen');
   });
 
-  it('deve filtrar por categoria', () => {
-    component.category.set('Shonen');
-    expect(component.filtered().length).toBe(1);
-    expect(component.filtered()[0].title).toBe('Naruto');
+  it('navega páginas e altera a ordenação no servidor', async () => {
+    component.setPage(2);
+    component.setSort('volumes_desc');
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(search).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sort: 'volumes_desc', page: '1' }),
+    );
+  });
+
+  it('renderiza controles com rótulos acessíveis', () => {
+    expect(
+      fixture.nativeElement.querySelector(
+        '[aria-label="Buscar título, título original, autor, editora ou ISBN"]',
+      ),
+    ).toBeTruthy();
+    expect(fixture.nativeElement.querySelector('[aria-label="Ordenar resultados"]')).toBeTruthy();
   });
 });

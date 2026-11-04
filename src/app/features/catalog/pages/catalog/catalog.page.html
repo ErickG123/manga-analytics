@@ -1,30 +1,27 @@
 <section class="hero">
   <div class="container">
     <div class="hero-kicker"><span class="dot"></span> O UNIVERSO DOS MANGÁS NO BRASIL</div>
-    <h1>
-      Descubra cada <em>volume.</em><br />
-      Explore cada <em>história.</em>
-    </h1>
+    <h1>Descubra cada <em>volume.</em><br />Explore cada <em>história.</em></h1>
     <p>
       Um lugar para acompanhar lançamentos, explorar catálogos e entender a evolução dos preços de
       mangás no Brasil.
     </p>
     <div class="hero-stats">
       <div>
-        <strong>{{ mangas().length }}</strong>
-        <span>obras cadastradas</span>
+        <strong>{{ pagination().total }}</strong
+        ><span>obras encontradas</span>
       </div>
       <div>
-        <strong>{{ volumeCount() }}</strong>
-        <span>volumes registrados</span>
+        <strong>{{ volumeCount() }}</strong
+        ><span>volumes nesta página</span>
       </div>
       <div>
-        <strong>{{ publishers().length }}</strong>
-        <span>editoras catalogadas</span>
+        <strong>{{ facets().publishers.length }}</strong
+        ><span>editoras catalogadas</span>
       </div>
     </div>
   </div>
-  <div class="hero-decoration">漫画</div>
+  <div class="hero-decoration" aria-hidden="true">漫画</div>
 </section>
 
 <section class="container section">
@@ -34,80 +31,187 @@
       <h2>Catálogo de mangás<span class="heading-dot">.</span></h2>
     </div>
     <div class="heading-actions">
-      <span class="count-label">{{ filtered().length }} RESULTADOS</span>
-      @if (query() || category() || publisher() || sort() !== 'title_asc') {
+      <span class="count-label" aria-live="polite">{{ pagination().total }} RESULTADOS</span>
+      @if (activeFilters().length) {
         <button type="button" class="btn-clear" (click)="clearFilters()">Limpar filtros</button>
       }
     </div>
   </div>
 
-  <div class="toolbar">
+  <div class="toolbar" role="search" aria-label="Filtros do catálogo">
     <label class="search-box">
-      <span>⌕</span>
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="7"></circle>
+        <path d="m16 16 4 4"></path>
+      </svg>
       <input
-        aria-label="Buscar mangá"
-        placeholder="Busque por título, autor, editora ou ISBN..."
+        aria-label="Buscar título, título original, autor, editora ou ISBN"
+        placeholder="Título, autor, editora ou ISBN..."
         [ngModel]="query()"
-        (ngModelChange)="query.set($event); page.set(1)"
+        (ngModelChange)="setSearch($event)"
       />
     </label>
-    <select
-      aria-label="Filtrar por editora"
-      [ngModel]="publisher()"
-      (ngModelChange)="publisher.set($event); page.set(1)"
-    >
-      <option value="">Todas as editoras</option>
-      @for (pub of publishers(); track pub) {
-        <option [value]="pub">{{ pub }}</option>
-      }
-    </select>
-    <select
-      aria-label="Filtrar por categoria"
-      [ngModel]="category()"
-      (ngModelChange)="category.set($event); page.set(1)"
-    >
-      <option value="">Todas as categorias</option>
-      @for (item of categories(); track item) {
-        <option [value]="item">{{ item }}</option>
-      }
-    </select>
-    <select aria-label="Ordenar resultados" [ngModel]="sort()" (ngModelChange)="sort.set($event)">
-      <option value="title_asc">Título A–Z</option>
-      <option value="title_desc">Título Z–A</option>
-      <option value="recent">Adicionados Recentemente</option>
-    </select>
+    <label class="filter-field"
+      ><span>Editora</span>
+      <select
+        aria-label="Filtrar por editora"
+        [ngModel]="publisher()"
+        (ngModelChange)="setPublisher($event)"
+      >
+        <option value="">Todas</option>
+        @for (pub of facets().publishers; track pub.id) {
+          <option [value]="pub.slug">{{ pub.name }}</option>
+        }
+      </select>
+    </label>
+    <label class="filter-field"
+      ><span>Categoria</span>
+      <select
+        aria-label="Filtrar por categoria"
+        [ngModel]="category()"
+        (ngModelChange)="setCategory($event)"
+      >
+        <option value="">Todas</option>
+        @for (item of facets().categories; track item) {
+          <option [value]="item">{{ item }}</option>
+        }
+      </select>
+    </label>
+    <label class="filter-field"
+      ><span>Situação</span>
+      <select
+        aria-label="Filtrar por situação da edição"
+        [ngModel]="status()"
+        (ngModelChange)="setStatus($event)"
+      >
+        <option value="">Todas</option>
+        @for (item of facets().statuses; track item) {
+          <option [value]="item">{{ item }}</option>
+        }
+      </select>
+    </label>
+    <label class="filter-field"
+      ><span>Ano desde</span
+      ><input
+        type="number"
+        min="1900"
+        [ngModel]="yearFrom()"
+        (ngModelChange)="setYearFrom($event)"
+        aria-label="Ano de lançamento inicial"
+    /></label>
+    <label class="filter-field"
+      ><span>Ano até</span
+      ><input
+        type="number"
+        min="1900"
+        [ngModel]="yearTo()"
+        (ngModelChange)="setYearTo($event)"
+        aria-label="Ano de lançamento final"
+    /></label>
+    <label class="filter-field"
+      ><span>Volumes mín.</span
+      ><input
+        type="number"
+        min="0"
+        [ngModel]="volumesMin()"
+        (ngModelChange)="setVolumesMin($event)"
+        aria-label="Quantidade mínima de volumes"
+    /></label>
+    <label class="filter-field"
+      ><span>Volumes máx.</span
+      ><input
+        type="number"
+        min="0"
+        [ngModel]="volumesMax()"
+        (ngModelChange)="setVolumesMax($event)"
+        aria-label="Quantidade máxima de volumes"
+    /></label>
+    <label class="filter-field"
+      ><span>Preço cadastrado</span>
+      <select
+        aria-label="Filtrar por preço cadastrado"
+        [ngModel]="hasPrice()"
+        (ngModelChange)="setHasPrice($event)"
+      >
+        <option value="">Qualquer</option>
+        <option value="true">Com preço</option>
+        <option value="false">Sem preço</option>
+      </select>
+    </label>
+    <label class="filter-field"
+      ><span>Lançamentos</span>
+      <select
+        aria-label="Filtrar obras com lançamentos futuros"
+        [ngModel]="upcoming()"
+        (ngModelChange)="setUpcoming($event)"
+      >
+        <option value="">Qualquer</option>
+        <option value="true">Com futuros</option>
+      </select>
+    </label>
+    <label class="filter-field"
+      ><span>Capa</span>
+      <select
+        aria-label="Filtrar por disponibilidade de capa"
+        [ngModel]="hasCover()"
+        (ngModelChange)="setHasCover($event)"
+      >
+        <option value="">Qualquer</option>
+        <option value="true">Com capa</option>
+        <option value="false">Sem capa</option>
+      </select>
+    </label>
+    <label class="filter-field"
+      ><span>Ordenar</span>
+      <select aria-label="Ordenar resultados" [ngModel]="sort()" (ngModelChange)="setSort($event)">
+        <option value="title_asc">Título A–Z</option>
+        <option value="title_desc">Título Z–A</option>
+        <option value="recent">Atualização recente</option>
+        <option value="volumes_desc">Mais volumes</option>
+        <option value="volumes_asc">Menos volumes</option>
+        <option value="release_desc">Lançamento recente</option>
+      </select>
+    </label>
   </div>
 
-  <div class="catalog-grid">
-    @for (manga of paginated(); track manga.id) {
-      <app-manga-card [manga]="manga" />
-    } @empty {
-      <div class="empty-state">
-        <p>Nenhuma obra encontrada com os critérios informados.</p>
-        <button type="button" class="btn-clear" (click)="clearFilters()">Redefinir pesquisa</button>
-      </div>
-    }
-  </div>
-
-  @if (totalPages() > 1) {
-    <div class="pagination">
-      <button
-        type="button"
-        [disabled]="page() === 1"
-        (click)="setPage(page() - 1)"
-        aria-label="Página anterior"
-      >
-        ← Anterior
-      </button>
-      <span>Página {{ page() }} de {{ totalPages() }}</span>
-      <button
-        type="button"
-        [disabled]="page() === totalPages()"
-        (click)="setPage(page() + 1)"
-        aria-label="Próxima página"
-      >
-        Próxima →
-      </button>
+  @if (activeFilters().length) {
+    <div class="active-filters" aria-label="Filtros ativos">
+      @for (filter of activeFilters(); track filter) {
+        <span class="filter-chip">{{ filter }}</span>
+      }
     </div>
+  }
+
+  @if (loading()) {
+    <p class="loading-state" role="status">Carregando catálogo…</p>
+  } @else if (error()) {
+    <div class="empty-state" role="alert">
+      <p>{{ error() }}</p>
+      <button type="button" class="btn-clear" (click)="clearFilters()">Limpar filtros</button>
+    </div>
+  } @else {
+    <div class="catalog-grid">
+      @for (manga of mangas(); track manga.id) {
+        <app-manga-card [manga]="manga" />
+      } @empty {
+        <div class="empty-state">
+          <p>Nenhuma obra encontrada com os filtros selecionados.</p>
+          <button type="button" class="btn-clear" (click)="clearFilters()">
+            Redefinir pesquisa
+          </button>
+        </div>
+      }
+    </div>
+    @if (totalPages() > 1) {
+      <nav class="pagination" aria-label="Paginação do catálogo">
+        <button type="button" [disabled]="page() === 1" (click)="setPage(page() - 1)">
+          Anterior
+        </button>
+        <span aria-live="polite">Página {{ page() }} de {{ totalPages() }}</span>
+        <button type="button" [disabled]="page() === totalPages()" (click)="setPage(page() + 1)">
+          Próxima
+        </button>
+      </nav>
+    }
   }
 </section>

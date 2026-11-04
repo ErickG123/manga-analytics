@@ -8,6 +8,7 @@ import {
   Index,
 } from 'typeorm';
 import { Volume } from './volume.entity.js';
+import { VolumeVariant } from './volume-variant.entity.js';
 
 @Entity('price_observations')
 export class PriceObservation {
@@ -17,6 +18,10 @@ export class PriceObservation {
   @Index()
   @Column({ type: 'uuid' })
   volumeId!: string;
+
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  variantId?: string | null;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   amount!: string;
@@ -36,6 +41,13 @@ export class PriceObservation {
   @ManyToOne(() => Volume, (volume) => volume.observations, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'volumeId' })
   volume!: Volume;
+
+  @ManyToOne(() => VolumeVariant, (variant) => variant.observations, {
+    nullable: true,
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'variantId' })
+  variant?: VolumeVariant | null;
 
   @CreateDateColumn({ type: 'timestamp with time zone' })
   createdAt!: Date;

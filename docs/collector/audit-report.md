@@ -30,3 +30,9 @@ O coletor opera em um pipeline estritamente desacoplado:
 - `test_bbm_client.py`: Validação de rate limiting por intervalo de tempo, abertura de circuit breaker em 429 e bloqueio de SSRF em URLs externas.
 - `test_bbm_parser.py`: Extração correta de títulos, editoras, preços e volumes a partir de fixture HTML real.
 - `test_quality_validator.py`: Validação matemática de algoritmos de ISBN-10, ISBN-13 e classificações de datas parciais.
+
+## 4. Estado da validação incremental
+
+Este relatório descreve os controles do cliente e não atesta autorização da fonte para coleta ou armazenamento. A validação incremental com fixtures locais, PostgreSQL isolado e rodadas remotas limitadas após autorização expressa do operador está em [Validação do collector](../testing/collector-import-validation.md). Qualquer expansão além desse lote limitado requer revisar as condições de acesso e uso da fonte.
+
+Com autorização expressa do operador, também foram executadas rodadas reais limitadas a 5 e 10 fichas. Nove checkpoints foram confirmados como inalterados sem download de detalhe; Blue Lock foi barrado por linhas conflitantes do volume 27. A base terminou sem duplicatas de referência, edição ou volume. A carga completa do catálogo não foi executada; rodadas maiores dependem de revisar as condições de uso da fonte. O relatório de validação registra o primeiro erro de lote, a proteção adicionada e as métricas observadas.

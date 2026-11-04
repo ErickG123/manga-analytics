@@ -5,13 +5,49 @@ import type {
   MangaQueryParams,
   PaginatedResult,
 } from '../models/manga.model.js';
+import type { Volume } from '../../../entities/volume.entity.js';
+import type { VolumeVariant } from '../../../entities/volume-variant.entity.js';
+import type { VolumePrice } from '../../../entities/volume-price.entity.js';
+
+function latestPrice(prices: VolumePrice[]): number | null {
+  const latest = [...prices].sort(
+    (left, right) =>
+      (right.observedAt?.getTime() ?? right.createdAt.getTime()) -
+      (left.observedAt?.getTime() ?? left.createdAt.getTime()),
+  )[0];
+  return latest ? Number(latest.amount) : null;
+}
+
+function latestCoverPrice(volume: Volume): number | null {
+  return latestPrice((volume.prices ?? []).filter((price) => !price.variantId));
+}
+
+function latestVariantPrice(variant: VolumeVariant): number | null {
+  return latestPrice(variant.prices ?? []);
+}
+
+function mapVariants(volume: Volume) {
+  return (volume.variants ?? []).map((variant) => ({
+    id: variant.id,
+    name: variant.name,
+    release: {
+      value: variant.releaseDate,
+      precision: variant.releaseDatePrecision,
+      status: variant.releaseStatus,
+    },
+    coverUrl: variant.coverUrl,
+    coverPriceBrl: latestVariantPrice(variant),
+  }));
+}
 
 export class MangaService {
   constructor(private readonly repo = new MangaRepository()) {}
 
   async list(params: MangaQueryParams): Promise<PaginatedResult<MangaListItemDto>> {
-    const page = Math.max(1, parseInt(params.page || '1', 10));
-    const limit = Math.min(100, Math.max(1, parseInt(params.limit || '50', 10)));
+    const parsedPage = Number.parseInt(params.page || '1', 10);
+    const parsedLimit = Number.parseInt(params.limit || '24', 10);
+    const page = Number.isFinite(parsedPage) ? Math.max(1, parsedPage) : 1;
+    const limit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 24;
     const [items, total] = await this.repo.findMany(params);
 
     const data: MangaListItemDto[] = items.map((m) => {
@@ -30,17 +66,20 @@ export class MangaService {
         initials: m.initials,
         coverUrl: m.coverUrl,
         volumesCount: allVolumes.length,
+        updatedAt: m.updatedAt,
         volumes: allVolumes.map((v) => ({
           id: v.id,
           number: v.number,
           title: v.title,
+          isbn13: v.isbn13,
+          coverUrl: v.coverUrl || m.coverUrl,
           release: {
             value: v.releaseDate,
             precision: v.releaseDatePrecision,
             status: v.releaseStatus,
           },
-          coverPriceBrl: v.prices?.[0]?.amount ? parseFloat(v.prices[0].amount) : null,
-          coverUrl: v.coverUrl || m.coverUrl,
+          coverPriceBrl: latestCoverPrice(v),
+          variants: mapVariants(v),
         })),
       };
     });
@@ -59,6 +98,7 @@ export class MangaService {
   async getByIdentifier(identifier: string): Promise<MangaDetailDto | null> {
     const manga = await this.repo.findByIdentifier(identifier);
     if (!manga) return null;
+    const source = await this.repo.findSourceReference(manga.id);
 
     const allVolumes = manga.editions.flatMap((e) => e.volumes).sort((a, b) => a.number - b.number);
     const pubName = manga.editions[0]?.publisher?.name || 'Não informada';
@@ -76,6 +116,9 @@ export class MangaService {
       initials: manga.initials,
       coverUrl: manga.coverUrl,
       volumesCount: allVolumes.length,
+      updatedAt: manga.updatedAt,
+      sourceUrl: source?.externalUrl ?? null,
+      sourceUpdatedAt: source?.createdAt ?? null,
       editions: manga.editions.map((e) => ({
         id: e.id,
         name: e.name,
@@ -95,7 +138,8 @@ export class MangaService {
           precision: v.releaseDatePrecision,
           status: v.releaseStatus,
         },
-        coverPriceBrl: v.prices?.[0]?.amount ? parseFloat(v.prices[0].amount) : null,
+        coverPriceBrl: latestCoverPrice(v),
+        variants: mapVariants(v),
       })),
     };
   }

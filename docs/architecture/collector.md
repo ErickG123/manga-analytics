@@ -35,3 +35,11 @@ python -m collector.src.cli import --limit 10
 # Executar sincronização incremental
 python -m collector.src.cli sync
 ```
+
+## 3. Sincronização incremental e idempotência
+
+O checkpoint da referência externa registra `sourceModifiedAt`, `sourceContentHash`, `lastSyncedAt` e `syncStatus`. Fichas completas com a mesma data de modificação são ignoradas sem download; `--force-refresh` força o download e compara o hash antes de gravar. Uma ficha cuja tabela de volumes não foi completamente interpretada fica pendente para nova tentativa. `--limit` limita fichas avaliadas, não obras novas.
+
+O repositório faz upsert transacional da obra, edição e volumes com chaves únicas, preserva dados existentes quando a fonte omite valores e cria observação de preço apenas quando o preço mudou. Veja [validação e benchmark](../testing/collector-import-validation.md) para evidências e limitações.
+
+As medições offline usam fixtures locais e não validam acesso nem latência da fonte. Nenhuma sincronização remota deve ser iniciada sem autorização e condições de uso confirmadas pela fonte.

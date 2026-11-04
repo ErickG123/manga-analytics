@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, inject, signal, computed } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  signal,
+  computed,
+  effect,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FavoriteService } from '../../../../core/services/favorite.service';
 import { MANGA_REPOSITORY } from '../../../../core/data/manga.repository';
@@ -21,7 +28,8 @@ export class FavoritesPageComponent {
 
   readonly favoriteMangas = computed(() => {
     const ids = this.favoriteService.favoriteIds();
-    return this.allMangas().filter((m: Manga) => ids.includes(m.id));
+    const byId = new Map(this.allMangas().map((manga) => [manga.id, manga]));
+    return ids.map((id) => byId.get(id)).filter((manga): manga is Manga => Boolean(manga));
   });
 
   readonly upcomingVolumes = computed(() => {
@@ -40,7 +48,10 @@ export class FavoritesPageComponent {
   });
 
   constructor() {
-    void this.repo.list().then((items) => this.allMangas.set(items));
+    effect(() => {
+      const ids = this.favoriteService.favoriteIds();
+      void this.repo.listByIds(ids).then((items) => this.allMangas.set(items));
+    });
   }
 
   clearAll(): void {

@@ -106,3 +106,11 @@ Para gerar relatório de cobertura de código (armazenado em `coverage/`):
 ```bash
 npm run test:coverage
 ```
+
+O relatório do collector pode ser gerado localmente com `py -m pytest collector/tests --cov=collector.src --cov-report=term-missing`. A cobertura das rotas Fastify é exibida com `npm run test:api -- --coverage`.
+
+Os testes PostgreSQL do collector são opt-in: defina `COLLECTOR_TEST_DATABASE_URL` para uma base isolada vazia/de validação antes de executar pytest. Eles criam e alteram registros nessa base. Não aponte a variável para dados de produção ou para a base principal de desenvolvimento. Consulte [Validação do collector](../testing/collector-import-validation.md) para os comandos e resultados medidos.
+
+Na validação SPEC-007 (04/11/2026), a cobertura medida foi: Angular 75,34% de linhas, API 70,40% de linhas e collector 82% de statements. Esses percentuais refletem as suítes atuais e não são limites mínimos configurados.
+
+Na validação incremental SPEC-008, a suíte do collector executou 27 testes com integração PostgreSQL e mediu 81% de cobertura de statements (`py -m pytest collector/tests --cov=collector.src --cov-report=term-missing`).

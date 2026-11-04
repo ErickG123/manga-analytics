@@ -1,12 +1,8 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { type Observable, tap } from 'rxjs';
-
-interface LoginResponse {
-  message: string;
-  token: string;
-  expiresIn: string;
-}
+import { environment } from '../../../environments/environment';
+import type { AdminLoginResponse } from '../models/admin-login-response.model';
 
 const SESSION_STORAGE_KEY = 'manga_atlas_admin_token';
 
@@ -15,13 +11,14 @@ const SESSION_STORAGE_KEY = 'manga_atlas_admin_token';
 })
 export class AdminAuthService {
   private readonly http = inject(HttpClient);
+  private readonly adminApiUrl = environment.adminApiUrl;
   private readonly _token = signal<string | null>(this.loadToken());
 
   readonly token = this._token.asReadonly();
   readonly isAuthenticated = computed(() => !!this._token());
 
-  login(password: string): Observable<LoginResponse> {
-    return this.http.post<LoginResponse>('/api/admin/auth/login', { password }).pipe(
+  login(password: string): Observable<AdminLoginResponse> {
+    return this.http.post<AdminLoginResponse>(`${this.adminApiUrl}/auth/login`, { password }).pipe(
       tap((res) => {
         if (res?.token) {
           this._token.set(res.token);
@@ -34,7 +31,7 @@ export class AdminAuthService {
   logout(): void {
     const currentToken = this._token();
     if (currentToken) {
-      this.http.post('/api/admin/auth/logout', { token: currentToken }).subscribe({
+      this.http.post(`${this.adminApiUrl}/auth/logout`, { token: currentToken }).subscribe({
         next: () => {
           /* noop */
         },

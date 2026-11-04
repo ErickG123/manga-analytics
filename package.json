@@ -12,7 +12,7 @@
     "test:collector": "python -m pytest collector/tests",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint .",
+    "lint": "eslint . && node scripts/check-no-ui-emojis.mjs",
     "lint:fix": "eslint . --fix",
     "lint:collector": "python -m ruff check collector",
     "docker:up": "docker compose up -d",

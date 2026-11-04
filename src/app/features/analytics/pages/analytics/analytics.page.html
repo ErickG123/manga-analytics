@@ -1,89 +1,230 @@
 <section class="container section">
   <div class="eyebrow">INTELIGÊNCIA DE MERCADO</div>
-  <h1 class="page-title">Análises de preços & Mercado<span class="heading-dot">.</span></h1>
+  <h1 class="page-title">Análises de preços &amp; mercado<span class="heading-dot">.</span></h1>
   <p class="muted">
-    Métricas e inteligência em tempo real sobre o mercado de mangás no Brasil baseadas no banco de
-    dados.
+    Indicadores calculados sobre os registros disponíveis, com filtros aplicados em todas as
+    consultas.
   </p>
 
+  <div class="analytics-filters" aria-label="Filtros globais das análises">
+    <label
+      >Ano desde<input
+        type="number"
+        min="1900"
+        max="2100"
+        [ngModel]="yearFrom()"
+        (ngModelChange)="yearFrom.set(+$event); filtersChanged()"
+    /></label>
+    <label
+      >Ano até<input
+        type="number"
+        min="1900"
+        max="2100"
+        [ngModel]="yearTo()"
+        (ngModelChange)="yearTo.set(+$event); filtersChanged()"
+    /></label>
+    <label
+      >Editora<select
+        [ngModel]="publisherId()"
+        (ngModelChange)="publisherId.set($event); filtersChanged()"
+      >
+        <option value="">Todas</option>
+        @for (publisher of publishers(); track publisher.id) {
+          <option [value]="publisher.id">{{ publisher.name }}</option>
+        }
+      </select></label
+    >
+    <label
+      >Categoria<select
+        [ngModel]="category()"
+        (ngModelChange)="category.set($event); filtersChanged()"
+      >
+        <option value="">Todas</option>
+        @for (item of categories(); track item) {
+          <option [value]="item">{{ item }}</option>
+        }
+      </select></label
+    >
+    <label
+      >Situação do volume<select
+        [ngModel]="status()"
+        (ngModelChange)="status.set($event); filtersChanged()"
+      >
+        <option value="">Todas</option>
+        <option value="released">Lançado</option>
+        <option value="planned">Previsto</option>
+        <option value="unknown">Desconhecido</option>
+      </select></label
+    >
+    <label
+      >Disponibilidade de preço<select
+        [ngModel]="hasPrice()"
+        (ngModelChange)="hasPrice.set($event); filtersChanged()"
+      >
+        <option value="">Todas</option>
+        <option value="true">Com preço</option>
+        <option value="false">Sem preço</option>
+      </select></label
+    >
+    <label
+      >Obra<input
+        type="search"
+        placeholder="Nome da obra"
+        [ngModel]="manga()"
+        (ngModelChange)="manga.set($event); filtersChanged()"
+    /></label>
+  </div>
+
+  @if (loading()) {
+    <p role="status" class="muted">Atualizando indicadores…</p>
+  }
+  @if (error()) {
+    <p role="alert" class="error-message">{{ error() }}</p>
+  }
+
   <div class="analytics-grid">
-    <div class="metric">
-      <span>TOTAL DE OBRAS</span>
-      <strong>{{ overview().totalMangas }}</strong>
-    </div>
-    <div class="metric">
-      <span>VOLUMES REGISTRADOS</span>
-      <strong>{{ overview().totalVolumes }}</strong>
-    </div>
-    <div class="metric">
-      <span>EDITORAS MAPEADAS</span>
-      <strong>{{ overview().totalPublishers }}</strong>
-    </div>
-    <div class="metric">
-      <span>PREÇO MÉDIO GERAL</span>
-      <strong>{{
-        overview().averagePrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
+    <article class="metric">
+      <span>TOTAL DE OBRAS</span><strong>{{ overview().totalMangas }}</strong>
+    </article>
+    <article class="metric">
+      <span>VOLUMES NO FILTRO</span><strong>{{ overview().totalVolumes }}</strong>
+    </article>
+    <article class="metric">
+      <span>LANÇAMENTOS NO PERÍODO</span><strong>{{ overview().releaseCount }}</strong>
+    </article>
+    <article class="metric">
+      <span>EDITORAS MAPEADAS</span><strong>{{ overview().totalPublishers }}</strong>
+    </article>
+    <article class="metric">
+      <span>PREÇO MÉDIO</span
+      ><strong>{{
+        overview().averagePrice === null
+          ? 'Sem amostra'
+          : (overview().averagePrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
+      }}</strong
+      ><small>{{ overview().sampleSize }} volumes com preço</small>
+    </article>
+    <article class="metric">
+      <span>PREÇOS CONHECIDOS</span><strong>{{ overview().pricedVolumes }}</strong
+      ><small
+        >{{
+          overview().priceCoverage === null
+            ? 'Sem amostra'
+            : (overview().priceCoverage | percent: '1.0-1')
+        }}
+        de cobertura</small
+      >
+    </article>
+    <article class="metric">
+      <span>SEM PREÇO</span><strong>{{ overview().unpricedVolumes }}</strong>
+    </article>
+    <article class="metric">
+      <span>DATAS CONHECIDAS</span><strong>{{ overview().datedVolumes }}</strong
+      ><small
+        >{{
+          overview().dateCoverage === null
+            ? 'Sem amostra'
+            : (overview().dateCoverage | percent: '1.0-1')
+        }}
+        com ano informado</small
+      >
+    </article>
+    <article class="metric">
+      <span>MEDIANA DE PREÇO</span
+      ><strong>{{
+        overview().medianPrice === null
+          ? 'Sem amostra'
+          : (overview().medianPrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
       }}</strong>
-    </div>
+    </article>
+    <article class="metric">
+      <span>MENOR / MAIOR PREÇO</span
+      ><strong>{{
+        overview().minPrice === null || overview().maxPrice === null
+          ? 'Sem amostra'
+          : (overview().minPrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR') +
+            ' / ' +
+            (overview().maxPrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
+      }}</strong>
+    </article>
+  </div>
+  <p class="metric-methodology">
+    {{ overview().priceBasis }} Período: {{ yearFrom() }}–{{ yearTo() }}. Preços ausentes não entram
+    na média, mediana, mínimo ou máximo.
+  </p>
+
+  <div class="chart-grid">
+    <article class="panel">
+      <h2>Preço médio por editora</h2>
+      <p class="muted">Amostra exibida por editora: volumes com preço registrado.</p>
+      <div
+        #publisherChart
+        class="chart"
+        role="img"
+        aria-label="Gráfico de preço médio por editora"
+      ></div>
+    </article>
+    <article class="panel">
+      <h2>Cobertura de preços por editora</h2>
+      <p class="muted">Percentual de volumes com preço registrado no filtro.</p>
+      <div
+        #coverageChart
+        class="chart"
+        role="img"
+        aria-label="Gráfico de cobertura de preços por editora"
+      ></div>
+    </article>
+    <article class="panel">
+      <h2>Lançamentos por mês</h2>
+      <p class="muted">
+        Meses sem registros no intervalo selecionado aparecem com zero. Datas só anuais não entram
+        nesta série.
+      </p>
+      <div #releaseChart class="chart" role="img" aria-label="Gráfico mensal de lançamentos"></div>
+    </article>
+    <article class="panel">
+      <h2>Lançamentos por ano</h2>
+      <p class="muted">Conta volumes com ano de lançamento conhecido.</p>
+      <div #yearChart class="chart" role="img" aria-label="Gráfico anual de lançamentos"></div>
+    </article>
+    <article class="panel">
+      <h2>Distribuição de preços</h2>
+      <p class="muted">Faixas aplicadas ao último preço registrado por volume.</p>
+      <div #bandsChart class="chart" role="img" aria-label="Distribuição de preços por faixa"></div>
+    </article>
+    <article class="panel">
+      <h2>Volumes por editora</h2>
+      <p class="muted">Quantidade de volumes no filtro atual.</p>
+      <div
+        #volumeChart
+        class="chart"
+        role="img"
+        aria-label="Quantidade de volumes por editora"
+      ></div>
+    </article>
+    <article class="panel">
+      <h2>Obras por editora</h2>
+      <p class="muted">Contagem de obras distintas no filtro atual.</p>
+      <div #mangaChart class="chart" role="img" aria-label="Quantidade de obras por editora"></div>
+    </article>
   </div>
 
-  <div
-    style="
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-      gap: 1.5rem;
-      margin-top: 2rem;
-    "
-  >
-    <div class="panel">
-      <h2>Preço Médio por Editora (R$)</h2>
-      <p class="muted">Comparativo de valor médio de capa praticado pelas editoras brasileiras</p>
-      <div #publisherChart style="width: 100%; height: 280px"></div>
-    </div>
-
-    <div class="panel">
-      <h2>Lançamentos por Mês</h2>
-      <p class="muted">Cronograma e volume de lançamentos nos meses monitorados</p>
-      <div #releaseChart style="width: 100%; height: 280px"></div>
-    </div>
-  </div>
-
-  <div class="panel" style="margin-top: 1.5rem">
-    <h2>Exportação de Relatórios Oficiais</h2>
+  <article class="panel report-panel">
+    <h2>Exportar dados filtrados</h2>
     <p class="muted">
-      Baixe os dados estruturados em formato CSV sanitizado e compatível com Excel
+      Os mesmos filtros de período, editora, categoria, situação e preço são aplicados aos arquivos
+      CSV.
     </p>
-    <div style="display: flex; gap: 1rem; margin-top: 1rem">
-      <button
-        class="btn"
-        style="
-          background: #dc2626;
-          color: white;
-          border: none;
-          padding: 0.6rem 1.2rem;
-          border-radius: 4px;
-          cursor: pointer;
-          font-weight: bold;
-        "
-        (click)="downloadReleasesCsv()"
-      >
-        ⬇ Baixar Relatório de Lançamentos (.CSV)
-      </button>
-      <button
-        class="btn"
-        style="
-          background: #1f2937;
-          color: white;
-          border: 1px solid #374151;
-          padding: 0.6rem 1.2rem;
-          border-radius: 4px;
-          cursor: pointer;
-          font-weight: bold;
-        "
-        (click)="downloadPricesCsv()"
-      >
-        ⬇ Baixar Relatório de Preços Históricos (.CSV)
+    <div class="report-actions">
+      <button type="button" class="btn" (click)="downloadReleasesCsv()">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M12 3v12m-5-5 5 5 5-5M4 19h16"></path></svg
+        >Baixar lançamentos (CSV)</button
+      ><button type="button" class="btn btn-secondary" (click)="downloadPricesCsv()">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M12 3v12m-5-5 5 5 5-5M4 19h16"></path></svg
+        >Baixar preços observados (CSV)
       </button>
     </div>
-  </div>
+  </article>
 </section>

@@ -2,6 +2,7 @@ export * from './publisher.entity.js';
 export * from './manga.entity.js';
 export * from './edition.entity.js';
 export * from './volume.entity.js';
+export * from './volume-variant.entity.js';
 export * from './volume-price.entity.js';
 export * from './price-observation.entity.js';
 export * from './data-source.entity.js';

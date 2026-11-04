@@ -25,6 +25,18 @@ export class ExternalReference {
   @Column({ type: 'varchar', length: 1000, nullable: true })
   externalUrl?: string | null;
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  sourceModifiedAt?: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  sourceContentHash?: string | null;
+
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  lastSyncedAt?: Date | null;
+
+  @Column({ type: 'varchar', length: 20, default: 'pending' })
+  syncStatus!: 'pending' | 'complete' | 'failed';
+
   @CreateDateColumn({ type: 'timestamp with time zone' })
   createdAt!: Date;
 }

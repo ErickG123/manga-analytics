@@ -1,4 +1,5 @@
 from decimal import Decimal
+
 from collector.src.normalizers.quality_validator import (
     validate_isbn,
     validate_price,

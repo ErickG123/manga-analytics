@@ -22,13 +22,17 @@ Executa coleta segura de um lote pequeno de obras persistindo no PostgreSQL:
 python -m collector.src.cli import --limit 10
 ```
 
-### 1.3 Sincronização Incremental por Modificações Recentes
+### 1.3 Sincronização Incremental
 
-Ordena pelo campo `modified` da API WordPress e processa as obras recentemente alteradas:
+Avalia até cinco fichas recentes por padrão. `--limit` limita fichas selecionadas, não novas obras. Checkpoints completos com `modified` inalterado não baixam a ficha novamente. Registros legados sem checkpoint recebem uma carga detalhada na primeira execução.
 
 ```bash
-python -m collector.src.cli sync
+python -m collector.src.cli sync --limit 10 --dry-run
 ```
+
+`--force-refresh` baixa novamente os detalhes; o hash do HTML evita persistência quando o conteúdo não mudou. `--metrics-json caminho/relatorio.json` exporta métricas da execução. O dry-run não persiste dados.
+
+**Restrição vigente:** a validação remota está bloqueada enquanto não houver confirmação de autorização e condições de coleta/armazenamento pela fonte. `robots.txt` não constitui essa autorização. Os testes aprovados usam fixtures locais e PostgreSQL isolado; veja o [relatório de validação](../testing/collector-import-validation.md).
 
 ---
 

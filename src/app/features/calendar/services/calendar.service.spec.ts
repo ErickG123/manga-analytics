@@ -29,10 +29,18 @@ describe('CalendarService', () => {
         publisher: 'Panini',
         number: 1,
         date: '15/04/2026',
+        precision: 'day' as const,
+        year: 2026,
+        month: 4,
+        day: 15,
         status: 'released' as const,
         price: 39.9,
       },
     ];
+    const mockResult = {
+      data: mockData,
+      pagination: { page: 1, limit: 24, total: 1, totalPages: 1 },
+    };
 
     const promise = service.getReleases({ year: 2026, publisher: 'panini' });
 
@@ -41,9 +49,11 @@ describe('CalendarService', () => {
     );
     expect(req.request.method).toBe('GET');
     expect(req.request.params.get('publisher')).toBe('panini');
-    req.flush(mockData);
+    expect(req.request.params.get('limit')).toBe('24');
+    expect(req.request.params.get('page')).toBeNull();
+    req.flush(mockResult);
 
     const result = await promise;
-    expect(result).toEqual(mockData);
+    expect(result).toEqual(mockResult);
   });
 });

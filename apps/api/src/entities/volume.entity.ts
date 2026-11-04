@@ -12,8 +12,10 @@ import {
 import { Edition } from './edition.entity.js';
 import { VolumePrice } from './volume-price.entity.js';
 import { PriceObservation } from './price-observation.entity.js';
+import { VolumeVariant } from './volume-variant.entity.js';
 
 @Entity('volumes')
+@Index('IDX_volumes_edition_number_unique', ['editionId', 'number'], { unique: true })
 export class Volume {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -67,6 +69,9 @@ export class Volume {
 
   @OneToMany(() => PriceObservation, (obs) => obs.volume)
   observations!: PriceObservation[];
+
+  @OneToMany(() => VolumeVariant, (variant) => variant.volume)
+  variants!: VolumeVariant[];
 
   @CreateDateColumn({ type: 'timestamp with time zone' })
   createdAt!: Date;
