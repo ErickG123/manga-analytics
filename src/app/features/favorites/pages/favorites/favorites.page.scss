@@ -1,0 +1,144 @@
+:host {
+  display: block;
+}
+
+.info-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 3px solid #e50914;
+  padding: 0.85rem 1.25rem;
+  border-radius: 4px;
+  margin-bottom: 2rem;
+  font-size: 0.9rem;
+  color: #ccc;
+
+  span {
+    font-size: 1.2rem;
+  }
+}
+
+.btn-clear {
+  background: transparent;
+  border: 1px solid rgba(229, 9, 20, 0.4);
+  color: #ff4d4d;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: #e50914;
+    color: #fff;
+  }
+}
+
+.empty-state {
+  text-align: center;
+  padding: 4rem 1rem;
+  color: #888;
+
+  .empty-icon {
+    font-size: 3rem;
+    color: #444;
+    margin-bottom: 1rem;
+  }
+
+  h3 {
+    color: #eee;
+    font-size: 1.3rem;
+    margin-bottom: 0.5rem;
+  }
+
+  p {
+    margin-bottom: 1.5rem;
+  }
+
+  .btn-explore {
+    display: inline-block;
+    background: #e50914;
+    color: #fff;
+    padding: 0.6rem 1.5rem;
+    border-radius: 4px;
+    text-decoration: none;
+    font-weight: 600;
+    transition: background 0.2s;
+
+    &:hover {
+      background: #b20710;
+    }
+  }
+}
+
+.upcoming-section {
+  margin-top: 3.5rem;
+  border-top: 1px solid #222;
+  padding-top: 2rem;
+
+  h3 {
+    font-size: 1.2rem;
+    color: #fff;
+    margin-bottom: 1.25rem;
+  }
+}
+
+.upcoming-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.upcoming-card {
+  background: #141414;
+  border: 1px solid #282828;
+  border-radius: 6px;
+  padding: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  .vol-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+
+    .manga-name {
+      font-size: 0.8rem;
+      color: #888;
+    }
+
+    .vol-title {
+      font-size: 1rem;
+      color: #fff;
+    }
+
+    .vol-pub {
+      font-size: 0.75rem;
+      color: #e50914;
+    }
+  }
+
+  .vol-date {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.35rem;
+
+    .date-badge {
+      background: #222;
+      border: 1px solid #333;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      color: #ddd;
+    }
+
+    .vol-price {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #4ade80;
+    }
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.angular/
+.git/
+.system_generated/
+package-lock.json
+collector/.venv/
+collector/__pycache__/

@@ -1,0 +1,108 @@
+# Estratégia de Testes Unitários — Mangá Atlas
+
+O Mangá Atlas utiliza o **Vitest** como motor de testes unitários oficial do frontend, integrado nativamente através do builder `@angular/build:unit-test`.
+
+---
+
+## 1. Princípios Gerais
+
+- **Extensão padrão:** todos os arquivos de teste devem ter o sufixo `.spec.ts`.
+- **Proximidade:** o teste deve residir no mesmo diretório do arquivo que está sendo testado (ex.: `manga-card.component.ts` e `manga-card.component.spec.ts`).
+- **Padrão AAA (Arrange, Act, Assert):**
+  1. _Arrange:_ configurar providers, criar TestBed e instanciar componente com inputs mockados.
+  2. _Act:_ disparar ações, eventos de clique ou chamadas de método.
+  3. _Assert:_ verificar alterações no DOM, emissões de outputs ou chamadas a spies.
+- **Determinismo e isolamento:** testes nunca realizam chamadas de rede externas ou operações assíncronas infinitas.
+
+---
+
+## 2. Exemplo de Teste de Componente Standalone
+
+```typescript
+import { type ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
+import { MangaCardComponent } from './manga-card.component';
+import type { Manga } from '../../models/manga.model';
+
+describe('MangaCardComponent', () => {
+  let fixture: ComponentFixture<MangaCardComponent>;
+  let component: MangaCardComponent;
+
+  const mockManga: Manga = {
+    id: 'm-1',
+    slug: 'vinland-saga',
+    title: 'Vinland Saga',
+    publisher: 'Panini',
+    category: 'Seinen',
+    description: 'História épica.',
+    accent: '#2c3e50',
+    initials: 'VS',
+    volumes: [],
+  };
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [MangaCardComponent],
+      providers: [provideRouter([])],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(MangaCardComponent);
+    component = fixture.componentInstance;
+    fixture.componentRef.setInput('manga', mockManga);
+    fixture.detectChanges();
+  });
+
+  it('deve renderizar o título do mangá', () => {
+    expect(component).toBeTruthy();
+    const titleEl = fixture.nativeElement.querySelector('h3');
+    expect(titleEl?.textContent).toContain('Vinland Saga');
+  });
+});
+```
+
+---
+
+## 3. Exemplo de Teste de Serviço / Repositório
+
+```typescript
+import { TestBed } from '@angular/core/testing';
+import { MockMangaRepository, MANGA_REPOSITORY } from './manga.repository';
+
+describe('MockMangaRepository', () => {
+  let repository: MockMangaRepository;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [MockMangaRepository],
+    });
+    repository = TestBed.inject(MockMangaRepository);
+  });
+
+  it('deve listar as obras', async () => {
+    const list = await repository.list();
+    expect(list.length).toBeGreaterThan(0);
+  });
+});
+```
+
+---
+
+## 4. Execução dos Testes e Cobertura
+
+Para rodar todos os testes uma única vez:
+
+```bash
+npm run test -- --watch=false
+```
+
+Para rodar em modo contínuo de observação (TDD):
+
+```bash
+npm run test:watch
+```
+
+Para gerar relatório de cobertura de código (armazenado em `coverage/`):
+
+```bash
+npm run test:coverage
+```

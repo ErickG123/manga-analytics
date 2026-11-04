@@ -1,0 +1,24 @@
+# Tarefas — SPEC-005
+
+- [ ] **Fase 1: Diagnóstico e Auditoria**
+  - [x] Documentar diagnóstico inicial com problemas P0, P1, P2 e P3
+- [ ] **Fase 2: Segurança Administrativa**
+  - [ ] Implementar endpoint `POST /api/admin/auth/login` e `POST /api/admin/auth/logout` no Fastify
+  - [ ] Criar `AdminAuthService` no Angular com gerenciamento de sessão em memória/storage volátil
+  - [ ] Criar tela de Login Angular `features/admin/pages/admin-login/` (`/admin/login`)
+  - [ ] Remover token hardcoded de `import-monitoring.component.ts`
+  - [ ] Proteger rota `/admin/monitoramento` com guard ou redirecionamento para login
+- [ ] **Fase 3: Robustez de Jobs e Concorrência**
+  - [ ] Implementar checagem atômica de concorrência (`409 Conflict`) no trigger de jobs
+  - [ ] Implementar reconciliação de jobs abandonados / interrompidos
+  - [ ] Adicionar testes de concorrência na API Fastify
+- [ ] **Fase 4: Fixtures Determinísticas de Teste**
+  - [ ] Criar script `apps/api/src/fixtures.ts` com dados controlados
+  - [ ] Adicionar script `"db:fixtures"` no `package.json`
+- [ ] **Fase 5: Documentação de Testes e Validação Manual**
+  - [ ] Atualizar `docs/testing/manual-validation.md` com campos padronizados e cenários corrigidos
+  - [ ] Criar `docs/testing/test-data.md`
+  - [ ] Criar `docs/testing/validation-report.md`
+- [ ] **Fase 6: Validação Completa**
+  - [ ] Executar `npm run check` (Prettier, ESLint, Vitest Angular, Vitest Fastify, Build)
+  - [ ] Executar pytest no coletor Python

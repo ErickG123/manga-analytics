@@ -1,0 +1,44 @@
+:host {
+  display: block;
+}
+
+.cover {
+  position: relative;
+}
+
+.favorite-badge-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: rgba(229, 9, 20, 0.8);
+    transform: scale(1.1);
+  }
+
+  &.active {
+    background: #e50914;
+    color: #fff;
+    border-color: #e50914;
+  }
+}
+
+.cover-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 4px;
+}

@@ -1,0 +1,65 @@
+<section class="container section">
+  <div class="section-heading">
+    <div>
+      <div class="eyebrow">SUA COLEÇÃO PESSOAL</div>
+      <h2>Obras Favoritas<span class="heading-dot">.</span></h2>
+    </div>
+    @if (favoriteMangas().length > 0) {
+      <button type="button" class="btn-clear" (click)="clearAll()">Limpar todos</button>
+    }
+  </div>
+
+  <div class="info-alert">
+    <span>ℹ️</span>
+    <p>
+      Seus favoritos ficam salvos de forma segura diretamente no seu navegador
+      (<strong>localStorage</strong>), sem necessidade de cadastro ou login.
+    </p>
+  </div>
+
+  @if (favoriteMangas().length === 0) {
+    <div class="empty-state">
+      <div class="empty-icon">☆</div>
+      <h3>Você ainda não adicionou nenhuma obra aos favoritos</h3>
+      <p>
+        Navegue pelo catálogo e clique na estrela do card para acompanhar suas obras preferidas.
+      </p>
+      <a routerLink="/catalogo" class="btn-explore">Explorar Catálogo</a>
+    </div>
+  } @else {
+    <!-- Grid de Mangás Favoritos -->
+    <div class="catalog-grid">
+      @for (manga of favoriteMangas(); track manga.id) {
+        <app-manga-card [manga]="manga" />
+      }
+    </div>
+
+    <!-- Próximos Lançamentos das Obras Favoritas -->
+    @if (upcomingVolumes().length > 0) {
+      <div class="upcoming-section">
+        <h3>Próximos Lançamentos das suas Obras</h3>
+        <div class="upcoming-grid">
+          @for (vol of upcomingVolumes(); track vol.id) {
+            <div class="upcoming-card">
+              <div class="vol-info">
+                <span class="manga-name">{{ vol.mangaTitle }}</span>
+                <strong class="vol-title">Volume #{{ vol.number }}</strong>
+                <span class="vol-pub">{{ vol.publisher }}</span>
+              </div>
+              <div class="vol-date">
+                <span class="date-badge">{{ vol.release.value || 'Previsto' }}</span>
+                <span class="vol-price">
+                  @if (vol.coverPriceBrl !== null) {
+                    R$ {{ vol.coverPriceBrl.toFixed(2) }}
+                  } @else {
+                    A definir
+                  }
+                </span>
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  }
+</section>

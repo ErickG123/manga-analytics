@@ -1,0 +1,53 @@
+<section class="container section">
+  @if (manga(); as item) {
+    <a routerLink="/catalogo" class="back-link">← Voltar ao catálogo</a>
+    <div class="detail-header">
+      <div class="detail-cover" [style.--cover-accent]="item.accent">
+        <span>{{ item.initials }}</span>
+      </div>
+      <div>
+        <div class="eyebrow">{{ item.category }} / {{ item.publisher }}</div>
+        <h1>{{ item.title }}</h1>
+        <p class="muted">{{ item.description }}</p>
+        <p><strong>Autor:</strong> {{ item.author || 'Não informado' }}</p>
+        <p><strong>Volumes cadastrados:</strong> {{ item.volumes.length }}</p>
+        <div class="notice">
+          Dados ilustrativos. Não representam preços ou lançamentos confirmados.
+        </div>
+      </div>
+    </div>
+
+    <h2>Volumes e preços</h2>
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Volume</th>
+            <th>Data (demo)</th>
+            <th>Situação</th>
+            <th>Preço de capa (demo)</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (v of item.volumes; track v.id) {
+            <tr>
+              <td>#{{ v.number }}</td>
+              <td>{{ v.release.value || '—' }}</td>
+              <td>{{ v.release.status === 'released' ? 'Lançado' : 'Previsto' }}</td>
+              <td>
+                {{
+                  v.coverPriceBrl === null
+                    ? '—'
+                    : (v.coverPriceBrl | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
+                }}
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  } @else {
+    <h1>Obra não encontrada</h1>
+    <a routerLink="/catalogo">Ver catálogo</a>
+  }
+</section>

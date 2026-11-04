@@ -1,0 +1,144 @@
+<section class="container section">
+  <div class="section-heading">
+    <div>
+      <div class="eyebrow">CONTROLE OPERACIONAL</div>
+      <h2>Monitoramento do Coletor<span class="heading-dot">.</span></h2>
+    </div>
+    <div class="header-actions">
+      <button type="button" class="btn-action" (click)="triggerSync()">
+        ⚡ Disparar Sincronização
+      </button>
+      <button type="button" class="btn-refresh" (click)="loadData()">↻ Atualizar</button>
+      <button type="button" class="btn-logout" (click)="logout()">Sair</button>
+    </div>
+  </div>
+
+  @if (actionMessage()) {
+    <div class="feedback-banner">{{ actionMessage() }}</div>
+  }
+
+  <!-- Cards de Visão Geral -->
+  @if (stats(); as s) {
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-label">Total de Execuções</span>
+        <strong class="stat-value">{{ s.jobs.total }}</strong>
+        <span class="stat-detail"
+          >Sucesso: {{ s.jobs.successful }} | Falhas: {{ s.jobs.failed }}</span
+        >
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Inconsistências em Aberto</span>
+        <strong class="stat-value alert">{{ s.quality.openIssues }}</strong>
+        <span class="stat-detail">Erros críticos: {{ s.quality.errorIssues }}</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Última Execução</span>
+        <strong class="stat-value">{{ s.jobs.lastJob?.status || 'Nenhuma' }}</strong>
+        <span class="stat-detail">{{ s.jobs.lastJob?.startedAt | date: 'dd/MM/yyyy HH:mm' }}</span>
+      </div>
+    </div>
+  }
+
+  <!-- Tabela de Histórico de Jobs -->
+  <div class="panel">
+    <h3>Histórico de Importações Recentes</h3>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Fonte</th>
+            <th>Status</th>
+            <th>Processados</th>
+            <th>Criados / Atualizados</th>
+            <th>Início</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (job of jobs(); track job.id) {
+            <tr>
+              <td>
+                <code>{{ job.id.substring(0, 8) }}...</code>
+              </td>
+              <td>{{ job.sourceId }}</td>
+              <td>
+                <span
+                  class="badge"
+                  [class.badge-success]="job.status === 'completed'"
+                  [class.badge-error]="job.status === 'failed'"
+                >
+                  {{ job.status }}
+                </span>
+              </td>
+              <td>{{ job.recordsProcessed }}</td>
+              <td>{{ job.recordsCreated }} / {{ job.recordsUpdated }}</td>
+              <td>{{ job.startedAt | date: 'dd/MM/yyyy HH:mm' }}</td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="6" class="empty-cell">Nenhum job registrado até o momento.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Tabela de Qualidade de Dados -->
+  <div class="panel">
+    <h3>Inconsistências de Qualidade e Rastreabilidade</h3>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Regra</th>
+            <th>Severidade</th>
+            <th>Entidade</th>
+            <th>Mensagem</th>
+            <th>Status</th>
+            <th>Ação</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (issue of qualityIssues(); track issue.id) {
+            <tr>
+              <td>
+                <code>{{ issue.ruleCode }}</code>
+              </td>
+              <td>
+                <span
+                  class="badge"
+                  [class.badge-warn]="issue.severity === 'warning'"
+                  [class.badge-info]="issue.severity === 'info'"
+                >
+                  {{ issue.severity }}
+                </span>
+              </td>
+              <td>{{ issue.entityType }}: {{ issue.entityId }}</td>
+              <td>{{ issue.message }}</td>
+              <td>
+                <span class="status-pill" [class.resolved]="issue.status === 'resolved'">
+                  {{ issue.status }}
+                </span>
+              </td>
+              <td>
+                @if (issue.status === 'open') {
+                  <button type="button" class="btn-resolve" (click)="resolveIssue(issue.id)">
+                    Resolver
+                  </button>
+                } @else {
+                  <span class="check-icon">✓</span>
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="6" class="empty-cell">Nenhuma inconsistência de qualidade pendente.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>

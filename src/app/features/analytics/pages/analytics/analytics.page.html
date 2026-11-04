@@ -1,0 +1,89 @@
+<section class="container section">
+  <div class="eyebrow">INTELIGÊNCIA DE MERCADO</div>
+  <h1 class="page-title">Análises de preços & Mercado<span class="heading-dot">.</span></h1>
+  <p class="muted">
+    Métricas e inteligência em tempo real sobre o mercado de mangás no Brasil baseadas no banco de
+    dados.
+  </p>
+
+  <div class="analytics-grid">
+    <div class="metric">
+      <span>TOTAL DE OBRAS</span>
+      <strong>{{ overview().totalMangas }}</strong>
+    </div>
+    <div class="metric">
+      <span>VOLUMES REGISTRADOS</span>
+      <strong>{{ overview().totalVolumes }}</strong>
+    </div>
+    <div class="metric">
+      <span>EDITORAS MAPEADAS</span>
+      <strong>{{ overview().totalPublishers }}</strong>
+    </div>
+    <div class="metric">
+      <span>PREÇO MÉDIO GERAL</span>
+      <strong>{{
+        overview().averagePrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
+      }}</strong>
+    </div>
+  </div>
+
+  <div
+    style="
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+    "
+  >
+    <div class="panel">
+      <h2>Preço Médio por Editora (R$)</h2>
+      <p class="muted">Comparativo de valor médio de capa praticado pelas editoras brasileiras</p>
+      <div #publisherChart style="width: 100%; height: 280px"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Lançamentos por Mês</h2>
+      <p class="muted">Cronograma e volume de lançamentos nos meses monitorados</p>
+      <div #releaseChart style="width: 100%; height: 280px"></div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top: 1.5rem">
+    <h2>Exportação de Relatórios Oficiais</h2>
+    <p class="muted">
+      Baixe os dados estruturados em formato CSV sanitizado e compatível com Excel
+    </p>
+    <div style="display: flex; gap: 1rem; margin-top: 1rem">
+      <button
+        class="btn"
+        style="
+          background: #dc2626;
+          color: white;
+          border: none;
+          padding: 0.6rem 1.2rem;
+          border-radius: 4px;
+          cursor: pointer;
+          font-weight: bold;
+        "
+        (click)="downloadReleasesCsv()"
+      >
+        ⬇ Baixar Relatório de Lançamentos (.CSV)
+      </button>
+      <button
+        class="btn"
+        style="
+          background: #1f2937;
+          color: white;
+          border: 1px solid #374151;
+          padding: 0.6rem 1.2rem;
+          border-radius: 4px;
+          cursor: pointer;
+          font-weight: bold;
+        "
+        (click)="downloadPricesCsv()"
+      >
+        ⬇ Baixar Relatório de Preços Históricos (.CSV)
+      </button>
+    </div>
+  </div>
+</section>

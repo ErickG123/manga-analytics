@@ -1,0 +1,29 @@
+# Tarefas — SPEC-004
+
+- [x] **Fase 1: Qualidade e Rastreabilidade de Dados**
+  - [x] Criar entidade `DataQualityIssue` no TypeORM
+  - [x] Implementar módulo validador de qualidade em Python (ISBN-10/13, datas parciais, preços)
+  - [x] Adicionar testes no Python com pytest cobrindo validações
+  - [x] Criar endpoints de qualidade de dados na API (`/api/admin/quality-issues`)
+- [x] **Fase 2: Painel Administrativo do Collector & Monitoramento**
+  - [x] Criar plugin de autenticação administrativa no Fastify (Header API Key / Bearer)
+  - [x] Implementar rotas `/api/admin/jobs` (histórico paginado, detalhes, revalidação assíncrona)
+  - [x] Criar feature Angular `src/app/features/admin/pages/import-monitoring/`
+  - [x] Adicionar rota `/admin/monitoramento` no Angular
+- [x] **Fase 3: Análises Avançadas de Preços e Lançamentos**
+  - [x] Expandir endpoints do módulo `analytics` (preço médio por ano, comparação entre editoras, preço por página)
+  - [x] Implementar endpoint de histórico temporal do volume (`PriceObservation`)
+  - [x] Atualizar componente Angular `AnalyticsPage` e rotas com novos dados de evolução
+- [x] **Fase 4: Busca Avançada e Filtros no Catálogo**
+  - [x] Expandir repositório TypeORM de mangás para suporte a busca por título/autor/ISBN, filtros múltiplos, ordenação estável e paginação
+  - [x] Atualizar `CatalogPage` no Angular para debounce na busca, filtros combinados, paginação e sincronização com query params da URL
+- [x] **Fase 5: Acompanhamento de Obras Favoritas**
+  - [x] Criar `FavoriteService` no Angular com persistência em `localStorage` e signals
+  - [x] Adicionar botões de favoritos no `MangaCardComponent`
+  - [x] Criar página `FavoritesPage` com lista de obras favoritas e previsão dos próximos lançamentos
+  - [x] Registrar rota `/favoritos`
+- [x] **Fase 6: Integração, Testes e Documentação**
+  - [x] Executar suíte completa: `npm run check` (19 testes Angular, 10 testes Fastify, build de produção)
+  - [x] Executar testes do coletor com pytest (10 testes passando)
+  - [x] Criar roteiro de validação manual em `docs/testing/manual-validation.md`
+  - [x] Atualizar ADRs e documentação arquitetural

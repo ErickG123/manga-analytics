@@ -1,0 +1,51 @@
+"""Configurações centralizadas, seguras e validadas para o Collector Python."""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from urllib.parse import urlparse
+
+
+@dataclass(frozen=True)
+class CollectorConfig:
+    enabled: bool
+    base_url: str
+    parent_catalog_id: int
+    user_agent: str
+    max_concurrency: int
+    min_request_interval_seconds: float
+    connect_timeout_seconds: float
+    read_timeout_seconds: float
+    max_retries: int
+    max_pages_per_run: int
+    max_items_per_run: int
+    max_run_duration_seconds: int
+    dry_run: bool
+
+    @classmethod
+    def from_env(cls) -> CollectorConfig:
+        base_url = os.getenv("COLLECTOR_BASE_URL", "https://blogbbm.com/wp-json/wp/v2/pages")
+        parsed = urlparse(base_url)
+        # Proteção SSRF: Apenas HTTP/HTTPS e hosts estritamente validados
+        allowed_hosts = ("blogbbm.com", "localhost", "127.0.0.1")
+        if parsed.scheme not in ("http", "https") or (parsed.hostname and parsed.hostname not in allowed_hosts):
+            raise ValueError(f"Host não autorizado para coleta: {parsed.hostname}")
+
+        return cls(
+            enabled=os.getenv("COLLECTOR_ENABLED", "true").lower() in ("true", "1", "yes"),
+            base_url=base_url,
+            parent_catalog_id=int(os.getenv("COLLECTOR_PARENT_CATALOG_ID", "82066")),
+            user_agent=os.getenv(
+                "COLLECTOR_USER_AGENT",
+                "MangaAtlasCollector/1.1 (+https://github.com/ErickG123/manga-analytics; research@manga-atlas.local)"
+            ),
+            max_concurrency=max(1, int(os.getenv("COLLECTOR_MAX_CONCURRENCY", "1"))),
+            min_request_interval_seconds=max(1.0, float(os.getenv("COLLECTOR_MIN_REQUEST_INTERVAL_SECONDS", "2.0"))),
+            connect_timeout_seconds=float(os.getenv("COLLECTOR_CONNECT_TIMEOUT_SECONDS", "10.0")),
+            read_timeout_seconds=float(os.getenv("COLLECTOR_READ_TIMEOUT_SECONDS", "30.0")),
+            max_retries=max(1, min(5, int(os.getenv("COLLECTOR_MAX_RETRIES", "3")))),
+            max_pages_per_run=int(os.getenv("COLLECTOR_MAX_PAGES_PER_RUN", "5")),
+            max_items_per_run=int(os.getenv("COLLECTOR_MAX_ITEMS_PER_RUN", "50")),
+            max_run_duration_seconds=int(os.getenv("COLLECTOR_MAX_RUN_DURATION_SECONDS", "1800")),
+            dry_run=os.getenv("COLLECTOR_DRY_RUN", "false").lower() in ("true", "1", "yes"),
+        )

@@ -1,0 +1,67 @@
+<section class="container section">
+  <div class="eyebrow">ACOMPANHE OS LANÇAMENTOS</div>
+  <h1 class="page-title">Calendário<span class="heading-dot">.</span></h1>
+  <p class="muted">Cronograma de lançamentos físicos no Brasil com datas e preços observados.</p>
+
+  <div class="toolbar" style="margin-bottom: 1.5rem; display: flex; gap: 1rem">
+    <select
+      aria-label="Filtrar por editora"
+      [ngModel]="selectedPublisher()"
+      (ngModelChange)="selectedPublisher.set($event)"
+    >
+      <option value="">Todas as editoras</option>
+      @for (pub of publishers(); track pub) {
+        <option [value]="pub">{{ pub }}</option>
+      }
+    </select>
+
+    <select
+      aria-label="Filtrar por status"
+      [ngModel]="selectedStatus()"
+      (ngModelChange)="selectedStatus.set($event)"
+    >
+      <option value="">Todos os status</option>
+      <option value="released">Lançado</option>
+      <option value="planned">Previsto</option>
+    </select>
+  </div>
+
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Obra</th>
+          <th>Volume</th>
+          <th>Status</th>
+          <th>Preço</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (entry of entries(); track entry.id) {
+          <tr>
+            <td>{{ entry.date }}</td>
+            <td>
+              <a [routerLink]="['/catalogo', entry.slug]">{{ entry.title }}</a>
+            </td>
+            <td>#{{ entry.number }}</td>
+            <td>{{ entry.status === 'released' ? 'Lançado' : 'Previsto' }}</td>
+            <td>
+              {{
+                entry.price === null
+                  ? '—'
+                  : (entry.price | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
+              }}
+            </td>
+          </tr>
+        } @empty {
+          <tr>
+            <td colspan="5" style="text-align: center; padding: 2rem">
+              Nenhum lançamento encontrado para os filtros selecionados.
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</section>

@@ -1,0 +1,35 @@
+<section class="container login-container">
+  <div class="login-card">
+    <div class="eyebrow">ÁREA RESTRITA</div>
+    <h2>Acesso Administrativo<span class="heading-dot">.</span></h2>
+    <p class="subtitle">
+      Painel de monitoramento do coletor, reconciliação de importações e auditoria de qualidade.
+    </p>
+
+    @if (errorMessage()) {
+      <div class="error-banner" role="alert">
+        {{ errorMessage() }}
+      </div>
+    }
+
+    <form (ngSubmit)="onSubmit()" class="login-form">
+      <div class="form-group">
+        <label for="adminKey">Chave Secreta de Administração</label>
+        <input
+          id="adminKey"
+          type="password"
+          name="password"
+          [ngModel]="password()"
+          (ngModelChange)="password.set($event)"
+          placeholder="Digite a chave ou token de admin..."
+          autocomplete="current-password"
+          required
+        />
+      </div>
+
+      <button type="submit" [disabled]="isLoading()" class="btn-submit">
+        {{ isLoading() ? 'Autenticando...' : 'Entrar no Painel' }}
+      </button>
+    </form>
+  </div>
+</section>

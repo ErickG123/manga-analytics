@@ -1,0 +1,21 @@
+<header class="site-header">
+  <a class="brand" routerLink="/catalogo">
+    <span class="brand-mark">漫</span>
+    <span>
+      MANGÁ<span class="brand-accent">ATLAS</span>
+      <small>LANÇAMENTOS & PREÇOS</small>
+    </span>
+  </a>
+  <nav aria-label="Navegação principal">
+    <a routerLink="/catalogo" routerLinkActive="active">Catálogo</a>
+    <a routerLink="/favoritos" routerLinkActive="active">Favoritos</a>
+    <a routerLink="/calendario" routerLinkActive="active">Calendário</a>
+    <a routerLink="/analises" routerLinkActive="active">Análises</a>
+    <a routerLink="/admin/monitoramento" routerLinkActive="active">Admin</a>
+  </nav>
+  <span class="demo-tag">PRODUÇÃO LOCAL</span>
+</header>
+<main>
+  <router-outlet />
+</main>
+<footer>Projeto Mangá Atlas · Dados rastreáveis BBM · Validação de Qualidade Integrada</footer>
