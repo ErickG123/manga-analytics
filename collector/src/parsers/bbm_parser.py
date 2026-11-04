@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -10,6 +11,11 @@ from collector.src.normalizers.data_normalizer import (
     parse_brazilian_date,
     parse_price_brl,
 )
+
+
+def _normalize_label(value: str) -> str:
+    normalized = unicodedata.normalize('NFKD', value)
+    return ''.join(char for char in normalized if not unicodedata.combining(char)).strip().lower()
 
 
 def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
@@ -44,27 +50,46 @@ def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
     # 3. Tabela de Volumes
     volumes: list[dict[str, Any]] = []
     for table in soup.find_all('table'):
-        headers = [' '.join(th.stripped_strings).lower() for th in table.find_all('th')]
-        if not (any('vol' in h for h in headers) and any('brasil' in h or 'data' in h for h in headers)):
+        rows = table.find_all('tr')
+        header_row_index = None
+        column_indexes: dict[str, int] = {}
+        for row_index, row in enumerate(rows):
+            cells = row.find_all(['th', 'td'], recursive=False)
+            labels = [_normalize_label(cell.get_text(' ', strip=True)) for cell in cells]
+            volume_index = next((i for i, label in enumerate(labels) if 'vol' in label), None)
+            brazil_index = next((i for i, label in enumerate(labels) if 'brasil' in label), None)
+            if volume_index is not None and brazil_index is not None:
+                header_row_index = row_index
+                column_indexes['volume'] = volume_index
+                column_indexes['date'] = brazil_index
+                price_index = next((i for i, label in enumerate(labels) if 'preco' in label), None)
+                if price_index is not None:
+                    column_indexes['price'] = price_index
+                break
+
+        if header_row_index is None:
             continue
 
-        for tr in table.find_all('tr'):
-            cells = tr.find_all('td', recursive=False)
-            if len(cells) < 3:
+        for row in rows[header_row_index + 1:]:
+            cells = row.find_all(['th', 'td'], recursive=False)
+            if len(cells) <= max(column_indexes.values()):
                 continue
 
-            num_text = cells[0].get_text(' ', strip=True)
+            num_text = cells[column_indexes['volume']].get_text(' ', strip=True)
             num_match = re.search(r'\d+', num_text)
-            if not num_match:
+            if num_match:
+                vol_num = int(num_match.group())
+            elif re.search(r'unico|one[- ]?shot', _normalize_label(num_text)):
+                vol_num = 1
+            else:
                 continue
-            vol_num = int(num_match.group())
 
             # Data BR
-            br_date_text = cells[2].get_text(' ', strip=True) if len(cells) >= 3 else ''
+            br_date_text = cells[column_indexes['date']].get_text(' ', strip=True)
             date_val, precision, year, month, day = parse_brazilian_date(br_date_text)
 
             # Preço BR
-            price_text = cells[3].get_text(' ', strip=True) if len(cells) >= 4 else ''
+            price_text = cells[column_indexes['price']].get_text(' ', strip=True) if 'price' in column_indexes else ''
             price_decimal = parse_price_brl(price_text)
 
             cover_url = covers[vol_num - 1] if len(covers) >= vol_num else (covers[0] if covers else None)

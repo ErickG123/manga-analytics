@@ -58,13 +58,21 @@ class ImportService:
                         for v in parsed.get('volumes', [])
                     ]
                 )
+                price_summary = ', '.join(
+                    f"vol. {volume.number}: R$ {volume.price_amount:.2f}"
+                    for volume in manga.volumes
+                    if volume.price_amount is not None
+                )
+                volume_summary = f"{len(manga.volumes)} volumes, {sum(volume.price_amount is not None for volume in manga.volumes)} com preço"
 
                 if dry_run:
-                    logger.info(f"[DRY-RUN] Processado: {manga.title} com {len(manga.volumes)} volumes")
+                    logger.info(f"[DRY-RUN] Processado: {manga.title}: {volume_summary}")
+                    if price_summary:
+                        logger.info(f"[DRY-RUN] Preços encontrados: {price_summary}")
                     result.created += 1
                 else:
                     self.repository.save_manga(manga)
-                    logger.info(f"[PERSISTIDO] {manga.title} ({len(manga.volumes)} volumes)")
+                    logger.info(f"[PERSISTIDO] {manga.title}: {volume_summary}")
                     result.created += 1
 
             except (ValueError, KeyError, RuntimeError, psycopg.Error) as e:
