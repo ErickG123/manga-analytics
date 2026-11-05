@@ -199,9 +199,9 @@ class ImportService:
                 if not manual_review:
                     metrics = getattr(self.client, "metrics", None)
                     if metrics is not None:
-                        metrics["suspension_seconds"] = metrics.get(
-                            "suspension_seconds", 0
-                        ) + delay
+                        metrics["suspension_seconds"] = (
+                            metrics.get("suspension_seconds", 0) + delay
+                        )
                 logger.warning(
                     "HTTP %s: suspensão %s persistida; checkpoint preservado",
                     blocking_error.status_code,
@@ -322,25 +322,38 @@ class ImportService:
                         if conflicts
                         else "tabela de volumes ausente ou incompleta"
                     )
-                    message = f"Ficha {page_id} ({raw_title}) não persistida: {reason}"
+                    message = (
+                        f"Ficha {page_id} ({raw_title}) não persistida: {reason}; "
+                        f"volume_table_found={parsed.get('volume_table_found', False)}, "
+                        f"volume_rows_skipped={parsed.get('volume_rows_skipped', 0)}, "
+                        f"conflicting_volume_numbers={conflicts}"
+                    )
                     result.failed += 1
                     result.errors.append(message)
                     logger.error(message)
                     record_failure = getattr(
                         self.repository, "record_collector_failure", None
                     )
+                    failure_recorded = False
                     if record_failure and not dry_run:
                         record_failure(
                             external_id=str(page_id),
                             external_url=meta.get("link"),
                             category="data_quality",
-                            status="needs_review",
+                            status="failed_retryable",
                             message=message,
                             last_http_status=None,
                             job_id=result.run_id,
                         )
-                    if item_checkpoint:
+                        failure_recorded = True
+                    if item_checkpoint and (dry_run or failure_recorded):
                         item_checkpoint(metadata_offset + 1, str(page_id))
+                    elif item_checkpoint and not dry_run:
+                        result.termination_status = "failed"
+                        logger.error(
+                            "Falha não foi persistida; checkpoint preservado para replay."
+                        )
+                        break
                     continue
                 manga = MangaCollected(
                     title=parsed["title"],
@@ -534,9 +547,9 @@ class ImportService:
                     if not manual_review:
                         metrics = getattr(self.client, "metrics", None)
                         if metrics is not None:
-                            metrics["suspension_seconds"] = metrics.get(
-                                "suspension_seconds", 0
-                            ) + delay
+                            metrics["suspension_seconds"] = (
+                                metrics.get("suspension_seconds", 0) + delay
+                            )
                     logger.warning(
                         "HTTP 429: suspensão %s persistida; checkpoint preservado",
                         "manual" if manual_review else f"até {delay}s",
@@ -555,9 +568,10 @@ class ImportService:
                         )
                         metrics = getattr(self.client, "metrics", None)
                         if metrics is not None:
-                            metrics["suspension_seconds"] = metrics.get(
-                                "suspension_seconds", 0
-                            ) + exc.retry_after_seconds
+                            metrics["suspension_seconds"] = (
+                                metrics.get("suspension_seconds", 0)
+                                + exc.retry_after_seconds
+                            )
                         result.retryable_failures += 1
                         result.failed += 1
                         result.errors.append(str(exc))

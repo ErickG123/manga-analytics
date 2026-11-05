@@ -119,10 +119,27 @@ def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
                 _normalize_label(cell.get_text(" ", strip=True)) for cell in cells
             ]
             volume_index = next(
-                (i for i, label in enumerate(labels) if "vol" in label), None
+                (
+                    i
+                    for i, label in enumerate(labels)
+                    if re.fullmatch(r"vol(?:ume)?s?\.?", label)
+                ),
+                None,
             )
             brazil_index = next(
-                (i for i, label in enumerate(labels) if "brasil" in label), None
+                (
+                    i
+                    for i, label in enumerate(labels)
+                    if label == "brasil"
+                    or (
+                        "brasil" in label
+                        and any(
+                            token in label
+                            for token in ("data", "publicado", "publicacao")
+                        )
+                    )
+                ),
+                None,
             )
             if volume_index is not None and brazil_index is not None:
                 header_row_index = row_index

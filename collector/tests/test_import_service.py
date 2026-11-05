@@ -3,6 +3,7 @@ import logging
 from decimal import Decimal
 from pathlib import Path
 
+from collector.src.cli import _backfill_exit_code
 from collector.src.clients.bbm_client import SourceRateLimited
 from collector.src.models.entities import ImportResult, MangaCollected, VolumeCollected
 from collector.src.repositories.collector_repository import CollectorRepository
@@ -261,6 +262,133 @@ def test_incomplete_or_conflicting_volume_table_is_not_persisted():
     assert result.failed == 1
     assert "27" in result.errors[0]
     assert repository.saved == []
+
+
+def test_incomplete_table_is_queued_for_retry_and_does_not_stop_batch():
+    incomplete_html = "<p>Editora: Editora Fixture</p>"
+    metadata = [
+        {
+            "id": 456,
+            "title": {"rendered": "Ficha sem tabela"},
+            "link": "https://blogbbm.com/obra/456",
+        },
+        {
+            "id": 457,
+            "title": {"rendered": "Ficha válida"},
+            "link": "https://blogbbm.com/obra/457",
+        },
+    ]
+
+    class MultiPageFixtureClient(FixtureClient):
+        def fetch_page(self, page_id):
+            self.fetch_calls.append(page_id)
+            html = (
+                incomplete_html
+                if page_id == 456
+                else FIXTURE.read_text(encoding="utf-8")
+            )
+            return {"content": {"rendered": html}}
+
+    class FailureRecordingRepository(RecordingRepository):
+        def __init__(self):
+            super().__init__()
+            self.failures = []
+
+        def record_collector_failure(self, **failure):
+            self.failures.append(failure)
+
+    repository = FailureRecordingRepository()
+    client = MultiPageFixtureClient(metadata)
+    checkpoints = []
+    result = ImportService(client=client, repository=repository).run_import(
+        limit=2,
+        item_checkpoint=lambda offset, external_id: checkpoints.append(
+            (offset, external_id)
+        ),
+    )
+
+    assert client.fetch_calls == [456, 457]
+    assert result.failed == 1
+    assert result.created == 1
+    assert len(repository.saved) == 1
+    assert repository.saved[0].external_id == "457"
+    assert repository.failures[0]["external_id"] == "456"
+    assert repository.failures[0]["external_url"] == "https://blogbbm.com/obra/456"
+    assert repository.failures[0]["category"] == "data_quality"
+    assert repository.failures[0]["status"] == "failed_retryable"
+    assert checkpoints == [(1, "456"), (2, "457")]
+
+
+def test_backfill_exit_code_keeps_queued_item_errors_nonfatal():
+    result = ImportResult(failed=1)
+
+    assert _backfill_exit_code(result, []) == 0
+    assert _backfill_exit_code(ImportResult(termination_status="rate_limited"), []) == 1
+    assert _backfill_exit_code(ImportResult(retryable_failures=1), []) == 1
+    assert _backfill_exit_code(ImportResult(), ["discovery failed"]) == 1
+
+
+def test_retry_failed_includes_legacy_data_quality_records(monkeypatch):
+    import collector.src.repositories.collector_repository as repository_module
+
+    class FakeCursor:
+        def __init__(self):
+            self.query = ""
+
+        def execute(self, query, params=()):
+            self.query = query
+            self.params = params
+
+        def fetchall(self):
+            return [("105580", "https://blogbbm.com/obra/105580")]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeConnection:
+        def __init__(self, cursor):
+            self.cursor_value = cursor
+
+        def cursor(self):
+            return self.cursor_value
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    cursor = FakeCursor()
+    connection = FakeConnection(cursor)
+
+    class ConnectContext:
+        def __enter__(self):
+            return connection
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(
+        repository_module.psycopg, "connect", lambda _url: ConnectContext()
+    )
+    repository = CollectorRepository("postgresql://fixture.invalid/test")
+
+    failures = repository.list_retryable_failures(5)
+
+    assert failures == [
+        {
+            "id": "105580",
+            "link": "https://blogbbm.com/obra/105580",
+            "title": {"rendered": ""},
+        }
+    ]
+    assert "category = 'data_quality' AND status = 'needs_review'" in cursor.query
+
+    repository.resolve_collector_failure("105580")
+    assert "category = 'data_quality' AND status = 'needs_review'" in cursor.query
 
 
 def test_rate_limit_persists_source_suspension_and_preserves_checkpoint():

@@ -12,6 +12,8 @@ Adicionar retries HTTP transitórios limitados e centralizados, suspensão persi
 - HTTP 429 persiste cooldown UTC, finaliza a execução sem espera longa e bloqueia novos jobs até expirar.
 - HTTP 403 persiste bloqueio sem expiração automática; desbloqueio exige comando e motivo explícitos.
 - Checkpoint só avança depois de persistência confirmada ou falha individual duravelmente registrada.
+- Falhas individuais de parsing/qualidade ficam em `collector_failures` com URL e status `failed_retryable`; o checkpoint avança após o registro durável, o lote continua e `retry-failed` reprocessa somente essas fichas.
+- Erros de execução que bloqueiam a coleta (suspensão, bloqueio, falha transitória sem checkpoint seguro ou erro de descoberta) continuam encerrando o processo com código diferente de zero.
 - Jobs e falhas individuais têm histórico consultável no PostgreSQL.
 - Locks no banco continuam impedindo backfills concorrentes.
 - Testes locais e de PostgreSQL isolado comprovam retry, suspensão, checkpoint e idempotência. Nenhuma coleta real é executada.

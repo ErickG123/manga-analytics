@@ -59,6 +59,27 @@ def test_parse_bbm_table_with_data_cells_as_headers():
     assert volume["price_amount"] == Decimal("42.90")
 
 
+def test_metadata_table_does_not_mask_single_volume_table():
+    html = """<table>
+      <tr><td>Nº de volumes no Brasil: 1</td><td></td></tr>
+      <tr><td>Sinopse da obra</td></tr>
+    </table>
+    <table>
+      <tr><th>Vol</th><th>Data no Japão</th><th>Data no Brasil</th><th>Preço</th></tr>
+      <tr><td>Único</td><td>30/06/2010</td><td>Julho de 2013</td><td>R$ 17,90</td></tr>
+    </table>"""
+
+    parsed = parse_bbm_page(html, "A Arte da Guerra")
+
+    assert parsed["volume_table_found"] is True
+    assert parsed["volume_rows_skipped"] == 0
+    assert parsed["volume_parse_complete"] is True
+    assert len(parsed["volumes"]) == 1
+    assert parsed["volumes"][0]["number"] == 1
+    assert parsed["volumes"][0]["release_date"] == "07/2013"
+    assert parsed["volumes"][0]["price_amount"] == Decimal("17.90")
+
+
 def test_parser_does_not_assume_panini_for_unknown_publisher():
     parsed = parse_bbm_page("<p>Editora: Devir</p>", "Obra de teste")
     assert parsed["publisher"] == "Devir"

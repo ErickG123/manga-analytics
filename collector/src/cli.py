@@ -337,12 +337,23 @@ def main():
                 checkpoint_now = repo.get_checkpoint()
                 if checkpoint_now and checkpoint_now["status"] == "running":
                     repo.set_checkpoint_status("interrupted")
-        if result.failed:
-            sys.exit(1)
-        sys.exit(0)
+        sys.exit(
+            _backfill_exit_code(result, getattr(service.client, "discovery_errors", []))
+        )
     else:
         parser.print_help()
         sys.exit(1)
+
+
+def _backfill_exit_code(result, discovery_errors: list[str]) -> int:
+    """Only stop an automated backfill for run-level failures.
+
+    Individual records are durably queued for retry and have already advanced
+    the item checkpoint, so they must not prevent later catalog batches.
+    """
+    return int(
+        bool(result.termination_status or result.retryable_failures or discovery_errors)
+    )
 
 
 def _write_metrics(path: Path | None, result) -> None:

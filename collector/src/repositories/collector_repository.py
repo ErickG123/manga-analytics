@@ -252,7 +252,9 @@ class CollectorRepository:
         with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
             cursor.execute(
                 """SELECT "externalId", "externalUrl" FROM collector_failures
-                   WHERE "sourceId" = 'bbm' AND status = 'failed_retryable'
+                   WHERE "sourceId" = 'bbm'
+                     AND (status = 'failed_retryable'
+                          OR (category = 'data_quality' AND status = 'needs_review'))
                    ORDER BY "updatedAt" ASC LIMIT %s""",
                 (limit,),
             )
@@ -265,7 +267,9 @@ class CollectorRepository:
         with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
             cursor.execute(
                 """UPDATE collector_failures SET status = 'resolved', "resolvedAt" = NOW(), "updatedAt" = NOW()
-                   WHERE "sourceId" = 'bbm' AND "externalId" = %s AND status = 'failed_retryable' """,
+                   WHERE "sourceId" = 'bbm' AND "externalId" = %s
+                     AND (status = 'failed_retryable'
+                          OR (category = 'data_quality' AND status = 'needs_review'))""",
                 (external_id,),
             )
 
