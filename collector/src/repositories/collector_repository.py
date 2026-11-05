@@ -7,6 +7,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import psycopg
 
@@ -26,10 +27,26 @@ def slugify(text: str) -> str:
 
 class CollectorRepository:
     def __init__(self, db_url: str | None = None):
-        self.db_url = db_url or os.getenv(
+        configured_url = db_url or os.getenv(
             "DATABASE_URL",
             "postgresql://manga_atlas:manga_atlas_secret@localhost:5432/manga_atlas",
         )
+        self.db_url = self._normalize_database_url(configured_url)
+
+    @staticmethod
+    def _normalize_database_url(database_url: str) -> str:
+        """Remove TypeORM's schema option, which psycopg does not accept in a URI."""
+        parsed = urlsplit(database_url)
+        if parsed.scheme not in ("postgres", "postgresql") or not parsed.query:
+            return database_url
+        query = urlencode(
+            [
+                (key, value)
+                for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+                if key.lower() != "schema"
+            ]
+        )
+        return urlunsplit(parsed._replace(query=query))
 
     def get_source_state(self, source_id: str = "bbm") -> dict[str, Any] | None:
         with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:

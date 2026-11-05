@@ -11,6 +11,16 @@ from collector.src.services.import_service import ImportService
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_bbm_page.html"
 
 
+def test_repository_strips_typeorm_schema_parameter_and_preserves_other_options():
+    repository = CollectorRepository(
+        "postgresql://user:secret@localhost:5432/manga_atlas?schema=public&sslmode=require"
+    )
+
+    assert repository.db_url == (
+        "postgresql://user:secret@localhost:5432/manga_atlas?sslmode=require"
+    )
+
+
 class FixtureClient:
     def __init__(self, metadata=None):
         self.metadata = metadata or [
