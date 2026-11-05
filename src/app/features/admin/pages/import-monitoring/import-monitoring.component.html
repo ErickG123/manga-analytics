@@ -26,6 +26,25 @@
     <div class="feedback-banner">{{ actionMessage() }}</div>
   }
 
+  @if (collectorState(); as state) {
+    <div class="panel collector-state" aria-live="polite">
+      <h3>Estado operacional da BBM</h3>
+      <p>
+        Origem: <strong>{{ state.source?.status || 'active' }}</strong>
+        @if (state.source?.suspendedUntil) {
+          · Retomada elegível após {{ state.source?.suspendedUntil | date: 'dd/MM/yyyy HH:mm:ss' }}
+        }
+      </p>
+      @if (state.source?.suspensionReason) {
+        <p>{{ state.source?.suspensionReason }}</p>
+      }
+      <p>
+        Checkpoint: página {{ state.checkpoint?.currentPage ?? 1 }}, posição
+        {{ state.checkpoint?.currentOffset ?? 0 }} · {{ state.pendingFailures }} fichas pendentes
+      </p>
+    </div>
+  }
+
   <!-- Cards de Visão Geral -->
   @if (stats(); as s) {
     <div class="stats-grid">
@@ -65,6 +84,7 @@
             <th>Status</th>
             <th>Processados</th>
             <th>Criados / Atualizados</th>
+            <th>Tipo / Retomadas</th>
             <th>Início</th>
           </tr>
         </thead>
@@ -80,17 +100,34 @@
                   class="badge"
                   [class.badge-success]="job.status === 'completed'"
                   [class.badge-error]="job.status === 'failed'"
+                  [class.badge-warn]="
+                    job.status === 'rate_limited' ||
+                    job.status === 'blocked' ||
+                    job.status === 'interrupted' ||
+                    job.status === 'completed_with_errors'
+                  "
                 >
-                  {{ job.status }}
+                  {{
+                    job.status === 'rate_limited'
+                      ? 'suspenso (429)'
+                      : job.status === 'blocked'
+                        ? 'bloqueado (403)'
+                        : job.status === 'completed_with_errors'
+                          ? 'concluído com pendências'
+                          : job.status === 'interrupted'
+                            ? 'interrompido'
+                            : job.status
+                  }}
                 </span>
               </td>
               <td>{{ job.recordsProcessed }}</td>
               <td>{{ job.recordsCreated }} / {{ job.recordsUpdated }}</td>
+              <td>{{ job.runType || 'import' }} · retomadas: {{ job.resumeCount ?? 0 }}</td>
               <td>{{ job.startedAt | date: 'dd/MM/yyyy HH:mm' }}</td>
             </tr>
           } @empty {
             <tr>
-              <td colspan="6" class="empty-cell">Nenhum job registrado até o momento.</td>
+              <td colspan="7" class="empty-cell">Nenhum job registrado até o momento.</td>
             </tr>
           }
         </tbody>

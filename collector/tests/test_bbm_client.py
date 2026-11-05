@@ -3,7 +3,13 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from collector.src.clients.bbm_client import BBMClient, CircuitBreakerOpenException
+from collector.src.clients.bbm_client import (
+    BBMClient,
+    CircuitBreakerOpenException,
+    SourceAccessBlocked,
+    SourceRateLimited,
+    SourceRetryDeferred,
+)
 from collector.src.config import CollectorConfig
 
 
@@ -69,9 +75,10 @@ def test_bbm_client_circuit_breaker_on_429(test_config):
     client.client.get = MagicMock(return_value=resp_429)
 
     # A chamada falhará e abrirá o circuit breaker
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(SourceRateLimited) as error:
         client.fetch_page(1)
 
+    assert error.value.retry_after_seconds == 1
     assert client.client.get.call_count == 1
     assert client.metrics["status_429"] == 1
     assert client.metrics["circuit_breaker_openings"] == 1
@@ -93,12 +100,155 @@ def test_bbm_client_403_is_not_retried(test_config):
     )
     client.client.get = MagicMock(return_value=response)
 
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(SourceAccessBlocked):
         client.fetch_page(1)
 
     assert client.client.get.call_count == 1
     assert client.metrics["status_403"] == 1
     assert client.metrics["circuit_breaker_openings"] == 1
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [("45", 45), ("invalid", None), ("-5", 0), (None, None)]
+)
+def test_retry_after_seconds_parsing(value, expected):
+    assert BBMClient._retry_after_seconds(value) == expected
+
+
+def test_retry_after_http_date_parses_in_utc(monkeypatch, test_config):
+    import collector.src.clients.bbm_client as client_module
+
+    monkeypatch.setattr(client_module, "datetime", MagicMock())
+    client_module.datetime.now.return_value = __import__("datetime").datetime(
+        2026, 11, 4, tzinfo=__import__("datetime").UTC
+    )
+    result = BBMClient._retry_after_seconds("Wed, 04 Nov 2026 00:00:45 GMT")
+    assert result == 45
+
+
+def test_retry_5xx_is_limited_and_uses_exponential_backoff(monkeypatch, test_config):
+    import collector.src.clients.bbm_client as client_module
+
+    client = BBMClient(config=test_config)
+    client._wait_for_rate_limit = MagicMock()
+    response_500 = MagicMock(spec=httpx.Response)
+    response_500.status_code = 500
+    response_500.headers = {}
+    response_200 = MagicMock(spec=httpx.Response)
+    response_200.status_code = 200
+    response_200.headers = {}
+    response_200.raise_for_status = MagicMock()
+    sleeps = []
+    monkeypatch.setattr(client_module.random, "uniform", lambda low, high: 1.0)
+    monkeypatch.setattr(client_module.time, "sleep", sleeps.append)
+    client.client.get = MagicMock(side_effect=[response_500, response_200])
+
+    client.fetch_page(5)
+
+    assert client.client.get.call_count == 2
+    assert sleeps == [5.0]
+    assert client.metrics["retries"] == 1
+    assert client.metrics["retries_successful"] == 1
+
+
+def test_503_retry_after_above_wait_budget_is_not_retried_early(test_config):
+    client = BBMClient(config=test_config)
+    client._wait_for_rate_limit = MagicMock()
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = 503
+    response.headers = {"Retry-After": "120"}
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "unavailable",
+        request=httpx.Request("GET", "https://blogbbm.com/"),
+        response=response,
+    )
+    client.client.get = MagicMock(return_value=response)
+
+    with pytest.raises(SourceRetryDeferred) as error:
+        client.fetch_page(5)
+
+    assert client.client.get.call_count == 1
+    assert error.value.retry_after_seconds == 120
+
+
+@pytest.mark.parametrize(
+    "error", [httpx.TimeoutException("timeout"), httpx.ConnectError("connect")]
+)
+def test_transport_failure_retries_then_succeeds(monkeypatch, test_config, error):
+    import collector.src.clients.bbm_client as client_module
+
+    client = BBMClient(config=test_config)
+    client._wait_for_rate_limit = MagicMock()
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = 200
+    response.headers = {}
+    response.raise_for_status = MagicMock()
+    client.client.get = MagicMock(side_effect=[error, response])
+    sleeps = []
+    monkeypatch.setattr(client_module.time, "sleep", sleeps.append)
+    monkeypatch.setattr(client_module.random, "uniform", lambda low, high: 1.0)
+
+    client.fetch_page(5)
+
+    assert client.client.get.call_count == 2
+    assert sleeps == [5.0]
+    assert client.metrics["retries_successful"] == 1
+
+
+@pytest.mark.parametrize("status_code", [500, 502, 504])
+def test_transient_server_statuses_retry(monkeypatch, test_config, status_code):
+    import collector.src.clients.bbm_client as client_module
+
+    client = BBMClient(config=test_config)
+    client._wait_for_rate_limit = MagicMock()
+    transient = MagicMock(spec=httpx.Response)
+    transient.status_code = status_code
+    transient.headers = {}
+    success = MagicMock(spec=httpx.Response)
+    success.status_code = 200
+    success.headers = {}
+    success.raise_for_status = MagicMock()
+    client.client.get = MagicMock(side_effect=[transient, success])
+    monkeypatch.setattr(client_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(client_module.random, "uniform", lambda low, high: 1.0)
+
+    client.fetch_page(5)
+
+    assert client.client.get.call_count == 2
+
+
+def test_exhausted_timeout_stops_at_total_attempt_limit(monkeypatch, test_config):
+    import collector.src.clients.bbm_client as client_module
+
+    client = BBMClient(config=test_config)
+    client._wait_for_rate_limit = MagicMock()
+    client.client.get = MagicMock(side_effect=httpx.TimeoutException("timeout"))
+    monkeypatch.setattr(client_module.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(httpx.TimeoutException):
+        client.fetch_page(5)
+
+    assert client.client.get.call_count == test_config.max_retries
+    assert client.metrics["retries_exhausted"] == 1
+
+
+def test_permanent_404_is_not_retried(test_config):
+    client = BBMClient(config=test_config)
+    client._wait_for_rate_limit = MagicMock()
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = 404
+    response.headers = {}
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "not found",
+        request=httpx.Request("GET", "https://blogbbm.com/pages/5"),
+        response=response,
+    )
+    client.client.get = MagicMock(return_value=response)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        client.fetch_page(5)
+
+    assert client.client.get.call_count == 1
 
 
 def test_bbm_client_ssrf_protection(test_config):

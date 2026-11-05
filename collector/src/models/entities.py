@@ -76,6 +76,8 @@ class ImportResult:
     would_create: int = 0
     would_update: int = 0
     failed: int = 0
+    retryable_failures: int = 0
+    termination_status: str | None = None
     volumes_found: int = 0
     volumes_with_price: int = 0
     variants_found: int = 0

@@ -1,11 +1,18 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { AppDataSource } from '../../config/data-source.js';
-import { ImportJob, DataQualityIssue } from '../../entities/index.js';
+import {
+  ImportJob,
+  DataQualityIssue,
+  CollectorSourceState,
+  CollectorFailure,
+} from '../../entities/index.js';
 import { createAdminSession, invalidateAdminSession } from '../../plugins/auth.plugin.js';
 
 export const adminRoutes: FastifyPluginAsync = async (fastify) => {
   const jobRepo = AppDataSource.getRepository(ImportJob);
   const issueRepo = AppDataSource.getRepository(DataQualityIssue);
+  const sourceStateRepo = AppDataSource.getRepository(CollectorSourceState);
+  const collectorFailureRepo = AppDataSource.getRepository(CollectorFailure);
 
   // 1. Rota pública de Login Administrativo (emite token de sessão)
   fastify.post<{ Body: { password?: string; key?: string } }>(
@@ -111,6 +118,36 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
       },
     };
   });
+
+  fastify.get('/collector-state', async () => {
+    const source = await sourceStateRepo.findOne({ where: { sourceId: 'bbm' } });
+    const checkpoint = await AppDataSource.query(
+      'SELECT "currentPage", "currentOffset", "lastExternalId", status, "updatedAt" FROM collector_checkpoints WHERE "sourceId" = $1 AND scope = $2',
+      ['bbm', 'catalog'],
+    );
+    const pendingFailures = await collectorFailureRepo.count({
+      where: [
+        { sourceId: 'bbm', status: 'needs_review' },
+        { sourceId: 'bbm', status: 'failed_retryable' },
+      ],
+    });
+    return { source, checkpoint: checkpoint[0] || null, pendingFailures };
+  });
+
+  fastify.get<{ Querystring: { page?: string; limit?: string } }>(
+    '/collector-failures',
+    async (request) => {
+      const page = Math.max(1, parseInt(request.query.page || '1', 10));
+      const limit = Math.min(100, Math.max(1, parseInt(request.query.limit || '10', 10)));
+      const [items, total] = await collectorFailureRepo.findAndCount({
+        where: { sourceId: 'bbm' },
+        order: { updatedAt: 'DESC' },
+        skip: (page - 1) * limit,
+        take: limit,
+      });
+      return { items, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+    },
+  );
 
   // 4. Histórico de execuções paginado
   fastify.get<{

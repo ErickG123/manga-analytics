@@ -10,7 +10,16 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
-from collector.src.clients.bbm_client import BBMClient, CircuitBreakerOpenException
+import httpx
+import psycopg
+
+from collector.src.clients.bbm_client import (
+    BBMClient,
+    CircuitBreakerOpenException,
+    SourceAccessBlocked,
+    SourceRateLimited,
+    SourceRetryDeferred,
+)
 from collector.src.models.entities import (
     ImportResult,
     MangaCollected,
@@ -36,6 +45,7 @@ class ImportService:
     ):
         self.client = client or BBMClient()
         self.repository = repository or CollectorRepository()
+        self.active_run_id: str | None = None
 
     def run_import(
         self,
@@ -49,8 +59,10 @@ class ImportService:
         max_pages: int | None = None,
         start_offset: int = 0,
         item_checkpoint: Callable[[int, str], None] | None = None,
+        retry_failed: bool = False,
     ) -> ImportResult:
         result = ImportResult(run_id=str(uuid.uuid4()), started_at=datetime.now(UTC))
+        self.active_run_id = result.run_id
         run_started = time.perf_counter()
         if hasattr(self.client, "reset_metrics"):
             self.client.reset_metrics()
@@ -63,7 +75,7 @@ class ImportService:
                 "max_concurrency": config.max_concurrency,
                 "connect_timeout_seconds": config.connect_timeout_seconds,
                 "read_timeout_seconds": config.read_timeout_seconds,
-                "max_retries": config.max_retries,
+                "http_max_attempts": config.max_retries,
                 "max_pages_per_run": config.max_pages_per_run,
                 "max_items_per_run": config.max_items_per_run,
                 "max_run_duration_seconds": config.max_run_duration_seconds,
@@ -87,8 +99,53 @@ class ImportService:
             force_refresh,
         )
 
+        job_started = False
+        source_check = getattr(self.repository, "get_source_state", None)
+        if source_check:
+            state = source_check("bbm")
+            if state and state["status"] == "suspended":
+                if state.get("suspended_until") and state[
+                    "suspended_until"
+                ] <= datetime.now(UTC):
+                    self.repository.clear_expired_suspension("bbm")
+                    state = source_check("bbm")
+                if state and state["status"] == "suspended":
+                    result.failed = 1
+                    result.termination_status = "rate_limited"
+                    until = state.get("suspended_until")
+                    message = f"Origem BBM suspensa até {until.isoformat() if until else 'revisão manual'}: {state.get('reason') or 'suspensão operacional'}"
+                    result.errors.append(message)
+                    logger.error(message)
+                    result.finished_at = datetime.now(UTC)
+                    result.duration_ms = (time.perf_counter() - run_started) * 1000
+                    return result
+            if state and state["status"] == "blocked":
+                message = f"Origem BBM bloqueada para revisão manual: {state.get('reason') or 'HTTP 403'}"
+                result.failed = 1
+                result.termination_status = "blocked"
+                result.errors.append(message)
+                logger.error(message)
+                result.finished_at = datetime.now(UTC)
+                result.duration_ms = (time.perf_counter() - run_started) * 1000
+                return result
+            create_job = getattr(self.repository, "create_import_job", None)
+            if create_job and not dry_run:
+                create_job(
+                    job_id=result.run_id,
+                    run_type=run_type,
+                    started_at=result.started_at,
+                    resumed=run_type == "backfill"
+                    and (start_page > 1 or start_offset > 0),
+                )
+                job_started = True
+
         discovery_started = time.perf_counter()
-        if (
+        if retry_failed:
+            list_retryable = getattr(self.repository, "list_retryable_failures", None)
+            metadata = list_retryable(limit or 10) if list_retryable else []
+            if limit is not None:
+                metadata = metadata[:limit]
+        elif (
             start_page == 1
             and orderby == "modified"
             and order == "desc"
@@ -118,6 +175,52 @@ class ImportService:
             result.errors.extend(
                 f"Falha na descoberta: {message}" for message in discovery_errors
             )
+        blocking_error = getattr(self.client, "last_blocking_error", None)
+        if isinstance(blocking_error, (SourceRateLimited, SourceRetryDeferred)):
+            fallback = getattr(config, "rate_limit_fallback_seconds", 900)
+            delay = blocking_error.retry_after_seconds
+            manual_review = (
+                isinstance(blocking_error, SourceRateLimited)
+                and delay is not None
+                and delay > 30 * 24 * 60 * 60
+            )
+            if isinstance(blocking_error, SourceRateLimited) and (
+                delay is None or delay <= 0
+            ):
+                delay = fallback
+            persist_state = getattr(self.repository, "suspend_source", None)
+            if persist_state:
+                persist_state(
+                    status="blocked" if manual_review else "suspended",
+                    reason=f"HTTP {blocking_error.status_code}; Retry-After={blocking_error.retry_after_seconds}",
+                    http_status=blocking_error.status_code,
+                    seconds=None if manual_review else delay,
+                )
+                if not manual_review:
+                    metrics = getattr(self.client, "metrics", None)
+                    if metrics is not None:
+                        metrics["suspension_seconds"] = metrics.get(
+                            "suspension_seconds", 0
+                        ) + delay
+                logger.warning(
+                    "HTTP %s: suspensão %s persistida; checkpoint preservado",
+                    blocking_error.status_code,
+                    "manual" if manual_review else f"até {delay}s",
+                )
+            result.termination_status = (
+                "blocked"
+                if manual_review
+                else "rate_limited"
+                if isinstance(blocking_error, SourceRateLimited)
+                else "failed"
+            )
+        elif isinstance(blocking_error, SourceAccessBlocked):
+            persist_state = getattr(self.repository, "suspend_source", None)
+            if persist_state:
+                persist_state(
+                    status="blocked", reason=str(blocking_error), http_status=403
+                )
+            result.termination_status = "blocked"
         external_ids = [str(item["id"]) for item in metadata if item.get("id")]
         comparison_started = time.perf_counter()
         get_states = getattr(self.repository, "get_sync_states", None)
@@ -140,7 +243,7 @@ class ImportService:
                 break
             page_id = meta.get("id")
             raw_title = meta.get("title", {}).get("rendered", "")
-            if not page_id or not raw_title:
+            if not page_id:
                 result.skipped += 1
                 logger.warning(
                     "Ficha ignorada: listagem sem id ou título (id=%s)", page_id
@@ -176,6 +279,11 @@ class ImportService:
             fetch_started = time.perf_counter()
             try:
                 page_data = self.client.fetch_page(page_id)
+                raw_title = (
+                    page_data.get("title", {}).get("rendered")
+                    or raw_title
+                    or str(page_id)
+                )
                 fetch_total_ms = (time.perf_counter() - fetch_started) * 1000
                 result.timings_ms["fetch_total_duration_ms"] = (
                     result.timings_ms.get("fetch_total_duration_ms", 0) + fetch_total_ms
@@ -218,6 +326,19 @@ class ImportService:
                     result.failed += 1
                     result.errors.append(message)
                     logger.error(message)
+                    record_failure = getattr(
+                        self.repository, "record_collector_failure", None
+                    )
+                    if record_failure and not dry_run:
+                        record_failure(
+                            external_id=str(page_id),
+                            external_url=meta.get("link"),
+                            category="data_quality",
+                            status="needs_review",
+                            message=message,
+                            last_http_status=None,
+                            job_id=result.run_id,
+                        )
                     if item_checkpoint:
                         item_checkpoint(metadata_offset + 1, str(page_id))
                     continue
@@ -354,6 +475,12 @@ class ImportService:
                     else:
                         status = "updated" if prior else "created"
                     setattr(result, status, getattr(result, status) + 1)
+                    if retry_failed:
+                        resolve_failure = getattr(
+                            self.repository, "resolve_collector_failure", None
+                        )
+                        if resolve_failure:
+                            resolve_failure(str(page_id))
                     logger.info(
                         "[%s] %s: %s volumes, %s com preço",
                         status.upper(),
@@ -378,29 +505,162 @@ class ImportService:
                     validation_ms,
                     (time.perf_counter() - page_started) * 1000,
                 )
-            except Exception as exc:  # noqa: BLE001 - isolate one malformed source record and continue safely
+            except (SourceRateLimited, SourceAccessBlocked, SourceRetryDeferred) as exc:
+                blocking_error = exc
+                result.termination_status = (
+                    "rate_limited"
+                    if isinstance(exc, SourceRateLimited)
+                    else "blocked"
+                    if isinstance(exc, SourceAccessBlocked)
+                    else "failed"
+                )
+                if isinstance(exc, SourceRateLimited):
+                    delay = exc.retry_after_seconds
+                    fallback = getattr(config, "rate_limit_fallback_seconds", 900)
+                    manual_review = delay is not None and delay > 30 * 24 * 60 * 60
+                    if delay is None or delay <= 0:
+                        delay = fallback
+                    getattr(self.repository, "suspend_source", lambda **_kwargs: None)(
+                        status="blocked" if manual_review else "suspended",
+                        reason=f"HTTP 429; Retry-After={exc.retry_after_seconds}"
+                        + (
+                            " excede 30 dias; revisão manual exigida"
+                            if manual_review
+                            else ""
+                        ),
+                        http_status=429,
+                        seconds=None if manual_review else delay,
+                    )
+                    if not manual_review:
+                        metrics = getattr(self.client, "metrics", None)
+                        if metrics is not None:
+                            metrics["suspension_seconds"] = metrics.get(
+                                "suspension_seconds", 0
+                            ) + delay
+                    logger.warning(
+                        "HTTP 429: suspensão %s persistida; checkpoint preservado",
+                        "manual" if manual_review else f"até {delay}s",
+                    )
+                    if manual_review:
+                        result.termination_status = "blocked"
+                else:
+                    if isinstance(exc, SourceRetryDeferred):
+                        getattr(
+                            self.repository, "suspend_source", lambda **_kwargs: None
+                        )(
+                            status="suspended",
+                            reason=str(exc),
+                            http_status=503,
+                            seconds=exc.retry_after_seconds,
+                        )
+                        metrics = getattr(self.client, "metrics", None)
+                        if metrics is not None:
+                            metrics["suspension_seconds"] = metrics.get(
+                                "suspension_seconds", 0
+                            ) + exc.retry_after_seconds
+                        result.retryable_failures += 1
+                        result.failed += 1
+                        result.errors.append(str(exc))
+                        logger.warning(
+                            "HTTP 503 adiado; suspensão persistida e checkpoint preservado."
+                        )
+                        break
+                    getattr(self.repository, "suspend_source", lambda **_kwargs: None)(
+                        status="blocked", reason=str(exc), http_status=403
+                    )
+                result.failed += 1
+                result.errors.append(str(exc))
+                logger.error("Origem interrompida; checkpoint preservado: %s", exc)
+                break
+            except Exception as exc:  # noqa: BLE001 - persist individual failures before checkpointing
                 message = f"Falha na página {page_id} ({raw_title}): {exc}"
                 logger.error(message)
                 result.failed += 1
                 result.errors.append(message)
                 response = getattr(exc, "response", None)
-                blocked = isinstance(exc, CircuitBreakerOpenException) or (
-                    response is not None and response.status_code in (403, 429)
+                is_database_error = isinstance(exc, psycopg.Error)
+                is_transport_error = isinstance(
+                    exc, (httpx.TimeoutException, httpx.ConnectError)
                 )
-                if item_checkpoint and not blocked:
-                    item_checkpoint(metadata_offset + 1, str(page_id or ""))
-                response = getattr(exc, "response", None)
-                if isinstance(exc, CircuitBreakerOpenException) or (
-                    response is not None and response.status_code in (403, 429)
-                ):
-                    logger.error(
-                        "Execução interrompida após bloqueio HTTP/circuit breaker."
+                is_transient_http = response is not None and response.status_code in (
+                    500,
+                    502,
+                    503,
+                    504,
+                )
+                is_permanent_http = response is not None and response.status_code in (
+                    400,
+                    404,
+                )
+                category = (
+                    "failed_retryable"
+                    if is_transport_error
+                    or is_transient_http
+                    or isinstance(exc, psycopg.OperationalError)
+                    else "failed_permanent"
+                    if is_permanent_http
+                    else "needs_review"
+                )
+                record_failure = getattr(
+                    self.repository, "record_collector_failure", None
+                )
+                if record_failure and not dry_run and not is_database_error:
+                    record_failure(
+                        external_id=str(page_id or "unknown"),
+                        external_url=meta.get("link"),
+                        category=category,
+                        status=category,
+                        message=message,
+                        last_http_status=getattr(response, "status_code", None),
+                        job_id=result.run_id,
                     )
+                transient = category == "failed_retryable"
+                if transient:
+                    result.retryable_failures += 1
+                if is_database_error:
+                    result.termination_status = "failed"
+                    logger.error(
+                        "Falha no PostgreSQL; checkpoint não avançado para permitir replay seguro."
+                    )
+                    break
+                if item_checkpoint and not transient:
+                    item_checkpoint(metadata_offset + 1, str(page_id or ""))
+                if isinstance(exc, CircuitBreakerOpenException):
+                    logger.error("Circuit breaker aberto; execução interrompida.")
                     break
 
         result.http_metrics = getattr(self.client, "metrics_snapshot", dict)()
         result.finished_at = datetime.now(UTC)
         result.duration_ms = (time.perf_counter() - run_started) * 1000
+        if job_started:
+            status = result.termination_status or (
+                "failed"
+                if result.retryable_failures
+                else "completed_with_errors"
+                if result.failed
+                else "completed"
+            )
+            self.repository.finish_import_job(
+                job_id=result.run_id,
+                status=status,
+                reason=(
+                    result.errors[-1]
+                    if status in ("rate_limited", "blocked", "completed_with_errors")
+                    and result.errors
+                    else None
+                ),
+                metrics={
+                    "http": result.http_metrics,
+                    "timings_ms": result.timings_ms,
+                    "selected": result.selected,
+                },
+                processed=result.processed,
+                created=result.created,
+                updated=result.updated,
+                failed=result.failed,
+                page=start_page,
+                offset=start_offset,
+            )
         logger.info(
             "Resumo execução id=%s type=%s discovered=%s selected=%s processed=%s created=%s updated=%s unchanged=%s skipped=%s failed=%s volumes=%s priced_volumes=%s variants=%s priced_variants=%s http_requests=%s http_duration_ms=%.1f rate_limit_wait_ms=%.1f fetch_total_duration_ms=%.1f parse_duration_ms=%.1f validation_duration_ms=%.1f db_duration_ms=%.1f run_total_duration_ms=%.1f",
             result.run_id,

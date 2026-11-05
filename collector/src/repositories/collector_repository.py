@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -29,6 +30,219 @@ class CollectorRepository:
             "DATABASE_URL",
             "postgresql://manga_atlas:manga_atlas_secret@localhost:5432/manga_atlas",
         )
+
+    def get_source_state(self, source_id: str = "bbm") -> dict[str, Any] | None:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT status, "suspendedUntil", "suspensionReason", "lastHttpStatus" FROM collector_source_states WHERE "sourceId" = %s',
+                (source_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return {
+                "status": row[0],
+                "suspended_until": row[1],
+                "reason": row[2],
+                "last_http_status": row[3],
+            }
+
+    def clear_expired_suspension(self, source_id: str = "bbm") -> None:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """UPDATE collector_source_states SET status = 'active', "suspensionReason" = NULL,
+                   "suspendedUntil" = NULL, "updatedAt" = NOW()
+                   WHERE "sourceId" = %s AND status = 'suspended' AND "suspendedUntil" <= NOW()""",
+                (source_id,),
+            )
+
+    def suspend_source(
+        self,
+        *,
+        status: str,
+        reason: str,
+        http_status: int,
+        seconds: int | None = None,
+        source_id: str = "bbm",
+    ) -> None:
+        suspended_until = (
+            datetime.now(UTC) + timedelta(seconds=seconds)
+            if seconds is not None
+            else None
+        )
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO collector_source_states ("sourceId", status, "suspendedUntil", "suspensionReason", "lastHttpStatus", "lastFailureAt", "updatedAt")
+                   VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+                   ON CONFLICT ("sourceId") DO UPDATE SET status = EXCLUDED.status,
+                   "suspendedUntil" = EXCLUDED."suspendedUntil", "suspensionReason" = EXCLUDED."suspensionReason",
+                   "lastHttpStatus" = EXCLUDED."lastHttpStatus", "lastFailureAt" = NOW(), "updatedAt" = NOW()""",
+                (source_id, status, suspended_until, reason[:1000], http_status),
+            )
+
+    def acknowledge_source_block(self, reason: str, source_id: str = "bbm") -> bool:
+        if not reason.strip():
+            raise ValueError("Informe o motivo da revisão para desbloquear a fonte.")
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                '''UPDATE collector_source_states SET status = 'active', "suspendedUntil" = NULL,
+                   "suspensionReason" = %s, "updatedAt" = NOW()
+                   WHERE "sourceId" = %s AND status = 'blocked'
+                     AND "lastHttpStatus" IN (403, 429) RETURNING "sourceId"''',
+                (f"Bloqueio revisado: {reason.strip()[:700]}", source_id),
+            )
+            return cursor.fetchone() is not None
+
+    def create_import_job(
+        self,
+        *,
+        job_id: str,
+        run_type: str,
+        started_at: datetime,
+        resumed: bool = False,
+    ) -> None:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """UPDATE import_jobs SET status = 'interrupted', "finishedAt" = NOW(),
+                   "terminationReason" = 'Recovered stale Collector job'
+                   WHERE "sourceId" = 'bbm' AND status = 'running' AND "startedAt" < NOW() - INTERVAL '45 minutes' """
+            )
+            cursor.execute(
+                'SELECT COALESCE(MAX("resumeCount"), 0) FROM import_jobs WHERE "sourceId" = %s AND "runType" = %s',
+                ("bbm", run_type),
+            )
+            prior_resumes = int(cursor.fetchone()[0])
+            resume_count = prior_resumes + 1 if resumed else 0
+            try:
+                cursor.execute(
+                    """INSERT INTO import_jobs (id, "sourceId", status, "runType", "startedAt", "resumeCount", "createdAt")
+                       VALUES (%s, 'bbm', 'running', %s, %s, %s, NOW())""",
+                    (job_id, run_type, started_at, resume_count),
+                )
+            except psycopg.errors.UniqueViolation as exc:
+                raise RuntimeError(
+                    "Já existe um job Collector ativo para a fonte BBM."
+                ) from exc
+
+    def finish_import_job(
+        self,
+        *,
+        job_id: str,
+        status: str,
+        reason: str | None,
+        metrics: dict[str, Any],
+        processed: int,
+        created: int,
+        updated: int,
+        failed: int,
+        page: int | None = None,
+        offset: int | None = None,
+    ) -> None:
+        import json
+
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """UPDATE import_jobs SET status = %s, "finishedAt" = NOW(), "terminationReason" = %s,
+                   "recordsProcessed" = %s, "recordsCreated" = %s, "recordsUpdated" = %s,
+                   "recordsFailed" = %s, metrics = %s::jsonb, "checkpointPage" = %s, "checkpointOffset" = %s,
+                   "errorMessage" = %s WHERE id = %s""",
+                (
+                    status,
+                    reason,
+                    processed,
+                    created,
+                    updated,
+                    failed,
+                    json.dumps(metrics, default=str),
+                    page,
+                    offset,
+                    reason,
+                    job_id,
+                ),
+            )
+
+    def record_collector_failure(
+        self,
+        *,
+        external_id: str,
+        external_url: str | None,
+        category: str,
+        status: str,
+        message: str,
+        last_http_status: int | None,
+        job_id: str | None,
+    ) -> None:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO collector_failures ("sourceId", "externalId", "externalUrl", category, status, message, "lastHttpStatus", attempts, "jobId")
+                   VALUES ('bbm', %s, %s, %s, %s, %s, %s, 1, %s)
+                   ON CONFLICT ("sourceId", "externalId", category) DO UPDATE SET
+                     status = EXCLUDED.status, message = EXCLUDED.message, "lastHttpStatus" = EXCLUDED."lastHttpStatus",
+                     attempts = collector_failures.attempts + 1, "jobId" = EXCLUDED."jobId", "updatedAt" = NOW(), "resolvedAt" = NULL""",
+                (
+                    external_id,
+                    external_url,
+                    category,
+                    status,
+                    message[:2000],
+                    last_http_status,
+                    job_id,
+                ),
+            )
+
+    def list_open_failures(self, limit: int = 20) -> list[dict[str, Any]]:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT "externalId", "externalUrl", category, status, message, attempts
+                   FROM collector_failures WHERE "sourceId" = 'bbm' AND status <> 'resolved'
+                   ORDER BY "updatedAt" ASC LIMIT %s""",
+                (limit,),
+            )
+            return [
+                dict(
+                    zip(
+                        (
+                            "external_id",
+                            "external_url",
+                            "category",
+                            "status",
+                            "message",
+                            "attempts",
+                        ),
+                        row,
+                        strict=True,
+                    )
+                )
+                for row in cursor.fetchall()
+            ]
+
+    def list_retryable_failures(self, limit: int = 20) -> list[dict[str, Any]]:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT "externalId", "externalUrl" FROM collector_failures
+                   WHERE "sourceId" = 'bbm' AND status = 'failed_retryable'
+                   ORDER BY "updatedAt" ASC LIMIT %s""",
+                (limit,),
+            )
+            return [
+                {"id": row[0], "link": row[1], "title": {"rendered": ""}}
+                for row in cursor.fetchall()
+            ]
+
+    def resolve_collector_failure(self, external_id: str) -> None:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """UPDATE collector_failures SET status = 'resolved', "resolvedAt" = NOW(), "updatedAt" = NOW()
+                   WHERE "sourceId" = 'bbm' AND "externalId" = %s AND status = 'failed_retryable' """,
+                (external_id,),
+            )
+
+    def set_checkpoint_status(self, status: str, scope: str = "catalog") -> None:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                'UPDATE collector_checkpoints SET status = %s, "updatedAt" = NOW() WHERE "sourceId" = %s AND scope = %s',
+                (status, "bbm", scope),
+            )
 
     def get_checkpoint(self, scope: str = "catalog") -> dict[str, Any] | None:
         with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:

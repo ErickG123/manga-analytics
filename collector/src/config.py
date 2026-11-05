@@ -36,6 +36,9 @@ class CollectorConfig:
     max_items_per_run: int
     max_run_duration_seconds: int
     dry_run: bool
+    http_retry_base_delay_seconds: float = 5.0
+    http_retry_max_delay_seconds: float = 60.0
+    rate_limit_fallback_seconds: int = 900
 
     @classmethod
     def from_env(cls) -> CollectorConfig:
@@ -71,6 +74,19 @@ class CollectorConfig:
                 os.getenv("COLLECTOR_READ_TIMEOUT_SECONDS", "30.0")
             ),
             max_retries=max(1, min(5, int(os.getenv("COLLECTOR_MAX_RETRIES", "3")))),
+            http_retry_base_delay_seconds=max(
+                1.0, float(os.getenv("COLLECTOR_HTTP_RETRY_BASE_DELAY_SECONDS", "5"))
+            ),
+            http_retry_max_delay_seconds=max(
+                1.0,
+                min(
+                    60.0,
+                    float(os.getenv("COLLECTOR_HTTP_RETRY_MAX_DELAY_SECONDS", "60")),
+                ),
+            ),
+            rate_limit_fallback_seconds=max(
+                60, int(os.getenv("COLLECTOR_RATE_LIMIT_FALLBACK_SECONDS", "900"))
+            ),
             max_pages_per_run=int(os.getenv("COLLECTOR_MAX_PAGES_PER_RUN", "5")),
             max_items_per_run=int(os.getenv("COLLECTOR_MAX_ITEMS_PER_RUN", "50")),
             max_run_duration_seconds=int(

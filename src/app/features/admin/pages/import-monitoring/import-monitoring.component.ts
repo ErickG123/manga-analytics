@@ -8,6 +8,7 @@ import type {
   AdminPage,
   AdminPagination,
   AdminStats,
+  CollectorState,
   ImportJobItem,
   QualityIssueItem,
 } from '../../models/import-monitoring.model';
@@ -28,6 +29,7 @@ export class ImportMonitoringComponent implements OnInit {
 
   readonly stats = signal<AdminStats | null>(null);
   readonly jobs = signal<ImportJobItem[]>([]);
+  readonly collectorState = signal<CollectorState | null>(null);
   readonly qualityIssues = signal<QualityIssueItem[]>([]);
   readonly jobsPage = signal(1);
   readonly jobsMeta = signal<AdminPagination>({ page: 1, limit: 10, total: 0, totalPages: 0 });
@@ -69,6 +71,11 @@ export class ImportMonitoringComponent implements OnInit {
         }
         console.error('Erro ao buscar stats admin:', err);
       },
+    });
+
+    this.http.get<CollectorState>(`${this.adminApiUrl}/collector-state`, { headers }).subscribe({
+      next: (data) => this.collectorState.set(data),
+      error: (err) => console.error('Erro ao consultar estado do coletor:', err),
     });
 
     this.http

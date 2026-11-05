@@ -21,13 +21,45 @@ export interface AdminStats {
 export interface ImportJobItem {
   id: string;
   sourceId: string;
-  status: string;
+  status:
+    | 'pending'
+    | 'running'
+    | 'completed'
+    | 'completed_with_errors'
+    | 'failed'
+    | 'interrupted'
+    | 'rate_limited'
+    | 'blocked';
+  runType?: string;
+  terminationReason?: string | null;
+  resumeCount?: number;
+  checkpointPage?: number | null;
+  checkpointOffset?: number | null;
+  metrics?: Record<string, unknown> | null;
   recordsProcessed: number;
   recordsCreated: number;
   recordsUpdated: number;
   recordsFailed: number;
   startedAt: string;
   completedAt?: string;
+}
+
+export interface CollectorState {
+  source: {
+    status: 'active' | 'suspended' | 'blocked';
+    suspendedUntil: string | null;
+    suspensionReason: string | null;
+    lastHttpStatus: number | null;
+    lastFailureAt: string | null;
+  } | null;
+  checkpoint: {
+    currentPage: number;
+    currentOffset: number;
+    lastExternalId: string | null;
+    status: string;
+    updatedAt: string;
+  } | null;
+  pendingFailures: number;
 }
 
 export interface QualityIssueItem {

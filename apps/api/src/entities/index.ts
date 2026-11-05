@@ -9,4 +9,6 @@ export * from './data-source.entity.js';
 export * from './external-reference.entity.js';
 export * from './import-job.entity.js';
 export * from './collector-checkpoint.entity.js';
+export * from './collector-source-state.entity.js';
+export * from './collector-failure.entity.js';
 export * from './data-quality-issue.entity.js';

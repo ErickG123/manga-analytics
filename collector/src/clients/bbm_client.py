@@ -22,6 +22,31 @@ class CircuitBreakerOpenException(Exception):
     """Exceção levantada quando o circuito de requisições foi aberto para proteger a fonte."""
 
 
+class SourceRateLimited(Exception):
+    """A origem devolveu 429; a camada de serviço deve persistir a suspensão."""
+
+    def __init__(self, retry_after_seconds: int | None, message: str = "HTTP 429"):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+        self.status_code = 429
+
+
+class SourceAccessBlocked(Exception):
+    """A origem devolveu 403 e requer revisão operacional explícita."""
+
+    status_code = 403
+
+
+class SourceRetryDeferred(Exception):
+    """A 503 requested a wait longer than this process is allowed to hold."""
+
+    status_code = 503
+
+    def __init__(self, retry_after_seconds: int):
+        super().__init__(f"HTTP 503; reavaliação somente após {retry_after_seconds}s")
+        self.retry_after_seconds = retry_after_seconds
+
+
 class BBMClient:
     def __init__(self, config: CollectorConfig | None = None):
         self.config = config or CollectorConfig.from_env()
@@ -30,6 +55,9 @@ class BBMClient:
         self._circuit_open_until: float = 0.0
         self._failure_threshold: int = 5
         self._cooldown_seconds: float = 60.0
+        self.last_blocking_error: (
+            SourceRateLimited | SourceAccessBlocked | SourceRetryDeferred | None
+        ) = None
         self.reset_metrics()
 
         # Validação estrita do host de destino (SSRF)
@@ -93,11 +121,11 @@ class BBMClient:
                 f"Requisição bloqueada para destino não autorizado: {parsed.hostname}"
             )
 
-        retries = self.config.max_retries
+        attempts = self.config.max_retries
         request_kind = (
             "detail" if params and "content" in params.get("_fields", "") else "list"
         )
-        for attempt in range(retries):
+        for attempt in range(attempts):
             self._wait_for_rate_limit()
             if attempt:
                 self.metrics["retries"] += 1
@@ -114,29 +142,13 @@ class BBMClient:
                     time.perf_counter() - request_started,
                 )
 
-                # HTTP 429 Too Many Requests -> Respeita Retry-After
+                # 429 is persisted by the service; never sleep and resume in this process.
                 if response.status_code == 429:
-                    retry_after = response.headers.get("Retry-After")
-                    delay = 30
-                    if retry_after:
-                        if retry_after.isdigit():
-                            delay = int(retry_after)
-                        else:
-                            try:
-                                retry_at = parsedate_to_datetime(retry_after)
-                                delay = max(
-                                    0,
-                                    int((retry_at - datetime.now(UTC)).total_seconds()),
-                                )
-                            except (TypeError, ValueError, OverflowError):
-                                pass
-                    logger.warning(
-                        f"HTTP 429 recebido! Respeitando Retry-After de {delay}s..."
-                    )
                     self._record_failure(429)
-                    time.sleep(delay)
-                    self.metrics["rate_limit_wait_ms"] += delay * 1000
-                    response.raise_for_status()
+                    raise SourceRateLimited(
+                        self._retry_after_seconds(response.headers.get("Retry-After")),
+                        f"HTTP 429 em {parsed.path}",
+                    )
 
                 # HTTP 403 Forbidden -> Interrupção imediata e não contorno
                 if response.status_code == 403:
@@ -144,42 +156,84 @@ class BBMClient:
                         "HTTP 403 Forbidden: Acesso rejeitado pela fonte. Interrompendo sem retry."
                     )
                     self._record_failure(403)
-                    response.raise_for_status()
+                    raise SourceAccessBlocked(f"HTTP 403 em {parsed.path}")
 
                 # Erros Transitórios 5xx -> Exponential backoff com jitter
                 if response.status_code in (500, 502, 503, 504):
                     self._record_failure(response.status_code)
-                    jitter = random.uniform(0.5, 1.5)
-                    backoff = (
-                        (2**attempt) * self.config.min_request_interval_seconds * jitter
+                    backoff = self._retry_delay(
+                        attempt, response.headers.get("Retry-After")
                     )
                     logger.warning(
-                        f"Erro {response.status_code} na tentativa {attempt + 1}. Backoff de {backoff:.2f}s..."
+                        "HTTP %s: tentativa %s/%s; backoff %.2fs",
+                        response.status_code,
+                        attempt + 1,
+                        attempts,
+                        backoff,
                     )
-                    time.sleep(backoff)
+                    if attempt == attempts - 1:
+                        self.metrics["retries_exhausted"] += 1
+                        response.raise_for_status()
+                    if backoff > 60:
+                        retry_after = self._retry_after_seconds(
+                            response.headers.get("Retry-After")
+                        )
+                        if response.status_code == 503 and retry_after is not None:
+                            self.metrics["retries_exhausted"] += 1
+                            raise SourceRetryDeferred(retry_after)
+                        self.metrics["retries_exhausted"] += 1
+                        response.raise_for_status()
+                    self.metrics["backoff_wait_ms"] += backoff * 1000
+                    self._sleep(backoff)
                     continue
 
                 response.raise_for_status()
                 self._record_success()
+                if attempt:
+                    self.metrics["retries_successful"] += 1
                 return response
 
+            except (SourceRateLimited, SourceAccessBlocked, SourceRetryDeferred):
+                raise
             except httpx.HTTPError as exc:
                 self.metrics["timeouts"] += int(isinstance(exc, httpx.TimeoutException))
+                error_response = getattr(exc, "response", None)
+                self.metrics["connection_errors"] += int(
+                    isinstance(exc, httpx.ConnectError)
+                )
                 logger.warning(
                     "HTTP request %s failed after %.3fs: %s",
                     parsed.path,
                     time.perf_counter() - request_started,
                     exc,
                 )
-                if exc.response is not None and exc.response.status_code == 403:
+                if (
+                    error_response is not None
+                    and error_response.status_code == 503
+                    and (
+                        self._retry_after_seconds(
+                            error_response.headers.get("Retry-After")
+                        )
+                        or 0
+                    )
+                    > 60
+                ):
+                    self.metrics["retries_exhausted"] += 1
                     raise
-                if exc.response is not None and exc.response.status_code == 429:
+                if error_response is not None and error_response.status_code not in (
+                    500,
+                    502,
+                    503,
+                    504,
+                ):
                     raise
-                if attempt == retries - 1:
+                if attempt == attempts - 1:
                     self._record_failure()
+                    self.metrics["retries_exhausted"] += 1
                     raise
-                jitter = random.uniform(0.5, 1.5)
-                time.sleep((2**attempt) * jitter)
+                delay = self._retry_delay(attempt)
+                self.metrics["backoff_wait_ms"] += delay * 1000
+                self._sleep(delay)
             finally:
                 request_ms = (time.perf_counter() - request_started) * 1000
                 self.metrics["http_duration_ms"] += request_ms
@@ -189,7 +243,43 @@ class BBMClient:
                     self.metrics["http_max_request_ms"], request_ms
                 )
 
-        raise RuntimeError(f"Falha ao requisitar {url} após {retries} tentativas")
+        raise RuntimeError(f"Falha ao requisitar {url} após {attempts} tentativas")
+
+    @staticmethod
+    def _retry_after_seconds(value: str | None) -> int | None:
+        if not value:
+            return None
+        try:
+            return max(0, int(value.strip()))
+        except (TypeError, ValueError):
+            try:
+                retry_at = parsedate_to_datetime(value)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=UTC)
+                return max(0, int((retry_at - datetime.now(UTC)).total_seconds()))
+            except (TypeError, ValueError, OverflowError):
+                return None
+
+    def _retry_delay(self, attempt: int, retry_after: str | None = None) -> float:
+        server_delay = self._retry_after_seconds(retry_after)
+        if server_delay is not None:
+            if server_delay > self.config.http_retry_max_delay_seconds:
+                return float(server_delay)
+            return max(self.config.min_request_interval_seconds, float(server_delay))
+        ceiling = min(
+            60.0,
+            self.config.http_retry_max_delay_seconds,
+            self.config.http_retry_base_delay_seconds * (2**attempt),
+        )
+        return max(
+            self.config.min_request_interval_seconds, random.uniform(0.8, 1.2) * ceiling
+        )
+
+    @staticmethod
+    def _sleep(duration: float) -> None:
+        # Long Retry-After for 503 is deferred to a later operator run, never shortened.
+        if duration <= 60:
+            time.sleep(duration)
 
     def fetch_page(self, page_id: int) -> dict[str, Any]:
         url = f"{self.config.base_url}/{page_id}"
@@ -200,6 +290,7 @@ class BBMClient:
 
     def reset_metrics(self) -> None:
         self.discovery_errors: list[str] = []
+        self.last_blocking_error = None
         self.metrics: dict[str, int | float] = {
             "http_request_count": 0,
             "list_request_count": 0,
@@ -208,7 +299,12 @@ class BBMClient:
             "http_max_request_ms": 0.0,
             "rate_limit_wait_ms": 0.0,
             "retries": 0,
+            "retries_successful": 0,
+            "retries_exhausted": 0,
+            "backoff_wait_ms": 0.0,
+            "suspension_seconds": 0,
             "timeouts": 0,
+            "connection_errors": 0,
             "status_403": 0,
             "status_429": 0,
             "status_5xx": 0,
@@ -264,7 +360,17 @@ class BBMClient:
             }
             try:
                 resp = self._get_with_retry(self.config.base_url, params)
-            except (httpx.HTTPError, CircuitBreakerOpenException) as exc:
+            except (
+                httpx.HTTPError,
+                CircuitBreakerOpenException,
+                SourceRateLimited,
+                SourceAccessBlocked,
+                SourceRetryDeferred,
+            ) as exc:
+                if isinstance(
+                    exc, (SourceRateLimited, SourceAccessBlocked, SourceRetryDeferred)
+                ):
+                    self.last_blocking_error = exc
                 self.discovery_errors.append(str(exc))
                 logger.error(f"Interrompendo iteração do catálogo: {exc}")
                 break

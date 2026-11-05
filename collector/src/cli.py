@@ -7,7 +7,7 @@ import json
 import logging
 import sys
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from collector.src.services.import_service import ImportService
@@ -31,6 +31,26 @@ def main():
         "-v", "--verbose", action="store_true", help="Ativa logs detalhados"
     )
     subparsers = parser.add_subparsers(dest="command", help="Comandos disponíveis")
+
+    subparsers.add_parser(
+        "source-status", help="Exibe suspensão persistida da origem BBM"
+    )
+    unblock_parser = subparsers.add_parser(
+        "source-unblock", help="Libera bloqueio 403 após revisão explícita"
+    )
+    unblock_parser.add_argument(
+        "--reason", required=True, help="Motivo da avaliação operacional"
+    )
+    failures_parser = subparsers.add_parser(
+        "failures", help="Lista fichas pendentes de revisão"
+    )
+    failures_parser.add_argument("--limit", type=int, default=20)
+    retry_failed_parser = subparsers.add_parser(
+        "retry-failed", help="Reprocessa falhas transitórias registradas"
+    )
+    retry_failed_parser.add_argument("--limit", type=int, default=5)
+    retry_failed_parser.add_argument("--dry-run", action="store_true")
+    retry_failed_parser.add_argument("--metrics-json", type=Path)
 
     # Subcomando import
     import_parser = subparsers.add_parser("import", help="Importa dados do BBM")
@@ -109,6 +129,55 @@ def main():
     args = parser.parse_args()
     setup_logging(args.verbose)
 
+    if args.command in {"source-status", "source-unblock", "failures"}:
+        from collector.src.repositories.collector_repository import CollectorRepository
+
+        repo = CollectorRepository()
+        if args.command == "source-status":
+            print(
+                json.dumps(
+                    repo.get_source_state() or {"status": "active"},
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                )
+            )
+            sys.exit(0)
+        if args.command == "source-unblock":
+            if not repo.acknowledge_source_block(args.reason):
+                print("Nenhum bloqueio 403 pendente para liberar.")
+                sys.exit(1)
+            print(
+                "Bloqueio manual revisado e removido. Cooldown 429 ativo continua sem liberação manual."
+            )
+            sys.exit(0)
+        if args.limit < 1:
+            parser.error("--limit deve ser maior que zero")
+        print(
+            json.dumps(
+                repo.list_open_failures(args.limit),
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            )
+        )
+        sys.exit(0)
+
+    if args.command == "retry-failed":
+        if args.limit < 1:
+            parser.error("--limit deve ser maior que zero")
+        service = ImportService()
+        result = service.run_import(
+            limit=args.limit,
+            dry_run=args.dry_run,
+            force_refresh=True,
+            run_type="retry_failed",
+            retry_failed=True,
+        )
+        _write_metrics(args.metrics_json, result)
+        print(json.dumps(asdict(result), ensure_ascii=False, indent=2, default=str))
+        sys.exit(1 if result.failed else 0)
+
     if not args.command or args.command == "import":
         limit = getattr(args, "limit", 10)
         dry_run = getattr(args, "dry_run", False)
@@ -143,6 +212,21 @@ def main():
             parser.error("--batch-size deve ser maior que zero")
         service = ImportService()
         repo = service.repository
+        source_state = repo.get_source_state("bbm")
+        if (
+            source_state
+            and source_state["status"] == "suspended"
+            and source_state.get("suspended_until")
+            and source_state["suspended_until"] <= datetime.now(UTC)
+        ):
+            repo.clear_expired_suspension("bbm")
+            source_state = repo.get_source_state("bbm")
+        if source_state and source_state["status"] in ("suspended", "blocked"):
+            print(
+                f"Backfill bloqueado pela origem BBM ({source_state['status']}): "
+                f"{source_state.get('reason') or 'consulte source-status'}"
+            )
+            sys.exit(1)
         if args.reset_checkpoint and not args.dry_run and not repo.reset_checkpoint():
             parser.error("Não é possível resetar: existe um backfill ativo.")
         checkpoint = (
@@ -194,43 +278,62 @@ def main():
                 request_blocked = bool(
                     metrics.get("status_403", 0) or metrics.get("status_429", 0)
                 )
-                current = repo.get_checkpoint()
-                repo.save_checkpoint(
-                    page=last_page
-                    if request_blocked or discovery_failed
-                    else last_page + 1,
-                    offset=(
-                        int(current.get("current_offset", start_offset))
-                        if current
-                        else start_offset
+                if request_blocked or result.termination_status in (
+                    "rate_limited",
+                    "blocked",
+                ):
+                    repo.set_checkpoint_status(
+                        result.termination_status
+                        or (
+                            "rate_limited"
+                            if metrics.get("status_429", 0)
+                            else "blocked"
+                        )
                     )
-                    if request_blocked
-                    else 0,
-                    last_external_id=(
-                        current.get("last_external_id")
-                        if request_blocked and current
-                        else str(metrics.get("last_external_id") or "") or None
-                    ),
-                    processed_count=processed_count,
-                    status="pending"
-                    if request_blocked
-                    else "failed"
-                    if discovery_failed
-                    else "completed"
-                    if end_reached
-                    else "pending",
-                )
+                elif (
+                    discovery_failed
+                    or result.retryable_failures
+                    or result.termination_status == "failed"
+                ):
+                    repo.set_checkpoint_status("failed")
+                else:
+                    repo.save_checkpoint(
+                        page=last_page + 1,
+                        offset=0,
+                        last_external_id=str(metrics.get("last_external_id") or "")
+                        or None,
+                        processed_count=processed_count,
+                        status="completed" if end_reached else "pending",
+                    )
             _write_metrics(args.metrics_json, result)
+        except KeyboardInterrupt:
+            if not args.dry_run:
+                repo.set_checkpoint_status("interrupted")
+                if service.active_run_id:
+                    try:
+                        repo.finish_import_job(
+                            job_id=service.active_run_id,
+                            status="interrupted",
+                            reason="Interrompido pelo operador (Ctrl+C); checkpoint confirmado preservado.",
+                            metrics={"http": service.client.metrics_snapshot()},
+                            processed=0,
+                            created=0,
+                            updated=0,
+                            failed=0,
+                            page=start_page,
+                            offset=start_offset,
+                        )
+                    except Exception:
+                        logging.getLogger("manga_atlas_collector").exception(
+                            "Não foi possível atualizar o job interrompido no PostgreSQL."
+                        )
+            print("Execução interrompida; checkpoint confirmado preservado.")
+            sys.exit(130)
         finally:
             if not args.dry_run:
                 checkpoint_now = repo.get_checkpoint()
                 if checkpoint_now and checkpoint_now["status"] == "running":
-                    repo.save_checkpoint(
-                        page=start_page,
-                        last_external_id=None,
-                        processed_count=0,
-                        status="failed",
-                    )
+                    repo.set_checkpoint_status("interrupted")
         if result.failed:
             sys.exit(1)
         sys.exit(0)

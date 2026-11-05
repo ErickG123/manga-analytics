@@ -1,6 +1,10 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
 
 @Entity('import_jobs')
+@Index('UQ_import_jobs_running_source', ['sourceId'], {
+  unique: true,
+  where: `"status" = 'running'`,
+})
 export class ImportJob {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -9,7 +13,33 @@ export class ImportJob {
   sourceId!: string;
 
   @Column({ type: 'varchar', length: 50, default: 'pending' })
-  status!: 'pending' | 'running' | 'completed' | 'failed';
+  status!:
+    | 'pending'
+    | 'running'
+    | 'completed'
+    | 'completed_with_errors'
+    | 'failed'
+    | 'interrupted'
+    | 'rate_limited'
+    | 'blocked';
+
+  @Column({ type: 'varchar', length: 30, default: 'import' })
+  runType!: string;
+
+  @Column({ type: 'text', nullable: true })
+  terminationReason?: string | null;
+
+  @Column({ type: 'int', default: 0 })
+  resumeCount!: number;
+
+  @Column({ type: 'jsonb', nullable: true })
+  metrics?: Record<string, unknown> | null;
+
+  @Column({ type: 'int', nullable: true })
+  checkpointPage?: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  checkpointOffset?: number | null;
 
   @Column({ type: 'timestamp with time zone', nullable: true })
   startedAt?: Date | null;

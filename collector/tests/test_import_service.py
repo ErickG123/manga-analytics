@@ -3,6 +3,7 @@ import logging
 from decimal import Decimal
 from pathlib import Path
 
+from collector.src.clients.bbm_client import SourceRateLimited
 from collector.src.models.entities import ImportResult, MangaCollected, VolumeCollected
 from collector.src.repositories.collector_repository import CollectorRepository
 from collector.src.services.import_service import ImportService
@@ -241,3 +242,140 @@ def test_incomplete_or_conflicting_volume_table_is_not_persisted():
     assert result.failed == 1
     assert "27" in result.errors[0]
     assert repository.saved == []
+
+
+def test_rate_limit_persists_source_suspension_and_preserves_checkpoint():
+    class RateLimitClient(FixtureClient):
+        def fetch_page(self, page_id):
+            self.fetch_calls.append(page_id)
+            raise SourceRateLimited(30)
+
+    class RecoveryRepository(RecordingRepository):
+        def __init__(self):
+            super().__init__()
+            self.suspensions = []
+            self.states = []
+
+        def suspend_source(self, **kwargs):
+            self.suspensions.append(kwargs)
+
+        def get_source_state(self, _source_id):
+            return None
+
+        def create_import_job(self, **_kwargs):
+            pass
+
+        def finish_import_job(self, **kwargs):
+            self.states.append(kwargs)
+
+    client = RateLimitClient()
+    repository = RecoveryRepository()
+    checkpoints = []
+    result = ImportService(client=client, repository=repository).run_import(
+        limit=1,
+        item_checkpoint=lambda offset, external_id: checkpoints.append(
+            (offset, external_id)
+        ),
+    )
+
+    assert client.fetch_calls == [123]
+    assert repository.suspensions[0]["status"] == "suspended"
+    assert repository.suspensions[0]["seconds"] == 30
+    assert checkpoints == []
+    assert result.termination_status == "rate_limited"
+    assert repository.states[0]["status"] == "rate_limited"
+
+
+def test_excessive_rate_limit_header_requires_manual_review():
+    class RateLimitClient(FixtureClient):
+        def fetch_page(self, page_id):
+            self.fetch_calls.append(page_id)
+            raise SourceRateLimited(31 * 24 * 60 * 60)
+
+    class RecoveryRepository(RecordingRepository):
+        def __init__(self):
+            super().__init__()
+            self.suspensions = []
+
+        def get_source_state(self, _source_id):
+            return None
+
+        def suspend_source(self, **kwargs):
+            self.suspensions.append(kwargs)
+
+        def create_import_job(self, **_kwargs):
+            pass
+
+        def finish_import_job(self, **_kwargs):
+            pass
+
+    repository = RecoveryRepository()
+    result = ImportService(client=RateLimitClient(), repository=repository).run_import(
+        limit=1
+    )
+
+    assert repository.suspensions[0]["status"] == "blocked"
+    assert repository.suspensions[0]["seconds"] is None
+    assert result.termination_status == "blocked"
+
+
+def test_active_source_suspension_blocks_run_before_remote_discovery():
+    class BlockedRepository(RecordingRepository):
+        def get_source_state(self, _source_id):
+            from datetime import UTC, datetime, timedelta
+
+            return {
+                "status": "suspended",
+                "suspended_until": datetime.now(UTC) + timedelta(minutes=5),
+                "reason": "HTTP 429",
+            }
+
+    client = FixtureClient()
+    result = ImportService(client=client, repository=BlockedRepository()).run_import(
+        limit=1
+    )
+
+    assert client.fetch_calls == []
+    assert result.termination_status == "rate_limited"
+    assert result.discovered == 0
+
+
+def test_retry_failed_processes_only_retryable_records_and_resolves_success():
+    class RetryRepository(RecordingRepository):
+        def __init__(self):
+            super().__init__()
+            self.resolved = []
+
+        def list_retryable_failures(self, limit):
+            return [
+                {
+                    "id": 9123,
+                    "link": "https://blogbbm.com/obra/9123",
+                    "title": {"rendered": ""},
+                }
+            ][:limit]
+
+        def resolve_collector_failure(self, external_id):
+            self.resolved.append(external_id)
+
+    class RetryingClient(FixtureClient):
+        def iter_catalog_metadata(self, limit=None, **_kwargs):
+            raise AssertionError("retry-failed must not rediscover the whole catalog")
+
+        def fetch_page(self, page_id):
+            self.fetch_calls.append(page_id)
+            return {
+                "title": {"rendered": "Recovered work"},
+                "content": {"rendered": FIXTURE.read_text(encoding="utf-8")},
+            }
+
+    repository = RetryRepository()
+    client = RetryingClient()
+    result = ImportService(client=client, repository=repository).run_import(
+        limit=1, force_refresh=True, run_type="retry_failed", retry_failed=True
+    )
+
+    assert client.fetch_calls == [9123]
+    assert result.processed == 1
+    assert result.created == 1
+    assert repository.resolved == ["9123"]

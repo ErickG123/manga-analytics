@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -431,3 +432,115 @@ def test_postgres_backfill_checkpoint_can_resume_and_reset_without_deleting_data
             'DELETE FROM collector_checkpoints WHERE "sourceId" = %s AND scope = %s',
             ("bbm", scope),
         )
+
+
+@pytest.mark.skipif(
+    not os.getenv("COLLECTOR_TEST_DATABASE_URL"),
+    reason="Set COLLECTOR_TEST_DATABASE_URL to an isolated PostgreSQL test database.",
+)
+def test_persistent_source_suspension_and_individual_failure_survive_repository_restart():
+    database_url = os.environ["COLLECTOR_TEST_DATABASE_URL"]
+    source_id = f"recovery-test-{uuid.uuid4().hex}"
+    repository = CollectorRepository(database_url)
+    repository.suspend_source(
+        source_id=source_id,
+        status="suspended",
+        reason="429 fixture; Retry-After=30",
+        http_status=429,
+        seconds=30,
+    )
+
+    restarted_repository = CollectorRepository(database_url)
+    state = restarted_repository.get_source_state(source_id)
+    assert state is not None
+    assert state["status"] == "suspended"
+    assert state["last_http_status"] == 429
+    assert state["suspended_until"] is not None
+
+    blocked_source = f"blocked-test-{uuid.uuid4().hex}"
+    repository.suspend_source(
+        source_id=blocked_source,
+        status="blocked",
+        reason="403 fixture requires review",
+        http_status=403,
+    )
+    restarted_block = restarted_repository.get_source_state(blocked_source)
+    restarted_repository.clear_expired_suspension(blocked_source)
+    assert restarted_block is not None
+    assert restarted_block["status"] == "blocked"
+    assert restarted_repository.get_source_state(blocked_source)["status"] == "blocked"
+
+    external_id = f"fixture-{uuid.uuid4().hex}"
+    repository.record_collector_failure(
+        external_id=external_id,
+        external_url="https://fixture.invalid/work",
+        category="data_quality",
+        status="needs_review",
+        message="Incomplete fixture record",
+        last_http_status=None,
+        job_id=None,
+    )
+    failures = repository.list_open_failures(100)
+    assert any(item["external_id"] == external_id for item in failures)
+
+    with psycopg.connect(database_url) as connection:
+        connection.execute(
+            'DELETE FROM collector_source_states WHERE "sourceId" = %s',
+            (source_id,),
+        )
+        connection.execute(
+            'DELETE FROM collector_source_states WHERE "sourceId" = %s',
+            (blocked_source,),
+        )
+        connection.execute(
+            'DELETE FROM collector_failures WHERE "externalId" = %s',
+            (external_id,),
+        )
+
+
+@pytest.mark.skipif(
+    not os.getenv("COLLECTOR_TEST_DATABASE_URL"),
+    reason="Set COLLECTOR_TEST_DATABASE_URL to an isolated PostgreSQL test database.",
+)
+def test_import_jobs_enforce_source_lock_and_count_resumptions():
+    database_url = os.environ["COLLECTOR_TEST_DATABASE_URL"]
+    repository = CollectorRepository(database_url)
+    first_id = str(uuid.uuid4())
+    second_id = str(uuid.uuid4())
+    repository.create_import_job(
+        job_id=first_id, run_type="backfill-test", started_at=datetime.now(UTC)
+    )
+    with pytest.raises(RuntimeError, match="job Collector ativo"):
+        repository.create_import_job(
+            job_id=str(uuid.uuid4()),
+            run_type="backfill-test",
+            started_at=datetime.now(UTC),
+            resumed=True,
+        )
+
+    repository.finish_import_job(
+        job_id=first_id,
+        status="interrupted",
+        reason="fixture interrupt",
+        metrics={},
+        processed=1,
+        created=1,
+        updated=0,
+        failed=0,
+        page=2,
+        offset=1,
+    )
+    repository.create_import_job(
+        job_id=second_id,
+        run_type="backfill-test",
+        started_at=datetime.now(UTC),
+        resumed=True,
+    )
+    with psycopg.connect(database_url) as connection:
+        resume_count = connection.execute(
+            'SELECT "resumeCount" FROM import_jobs WHERE id = %s', (second_id,)
+        ).fetchone()[0]
+        connection.execute(
+            "DELETE FROM import_jobs WHERE id = ANY(%s)", ([first_id, second_id],)
+        )
+    assert resume_count == 1

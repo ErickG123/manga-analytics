@@ -40,15 +40,14 @@ python -m collector.src.cli sync --limit 10 --dry-run
 
 ### 2.1 Incidente: HTTP 429 Too Many Requests
 
-- **Sintoma:** Log `HTTP 429 recebido! Respeitando Retry-After de Xs...`.
-- **Comportamento automático:** O coletor suspende as requisições pelo tempo estipulado no header e abre o circuit breaker para evitar novas rajadas.
-- **Ação do Operador:** Não forçar reexecuções manuais imediatas. Aguardar o término do cooldown e aumentar o valor de `COLLECTOR_MIN_REQUEST_INTERVAL_SECONDS` no `.env`.
+- **Comportamento automático:** O coletor persiste a suspensão e o prazo UTC, encerra o job e preserva o checkpoint. Novas execuções não fazem requests antes do fim do cooldown.
+- **Ação do Operador:** Consulte `py -m collector.src.cli source-status`; após o prazo, reavalie e retome com `backfill --resume`. Veja o [runbook de recuperação](recovery-runbook.md).
 
 ### 2.2 Incidente: HTTP 403 Forbidden
 
 - **Sintoma:** Log `HTTP 403 Forbidden: Acesso rejeitado pela fonte. Interrompendo sem retry.`.
-- **Comportamento automático:** A coleta é abortada imediatamente.
-- **Ação do Operador:** Verificar a integridade do User-Agent e confirmar eventuais alterações de política junto aos administradores da fonte. **Não utilizar técnicas de contorno ou spoofing de cabeçalhos.**
+- **Comportamento automático:** A coleta é abortada imediatamente e o estado `blocked` permanece no PostgreSQL.
+- **Ação do Operador:** Investigue a resposta e avalie a política da fonte. Após revisão explícita, use `source-unblock --reason ...`; não contorne a rejeição.
 
 ### 2.3 Recuperação de Jobs Abandonados
 
