@@ -13,12 +13,21 @@ FIXTURE = Path(__file__).parent / "fixtures" / "sample_bbm_page.html"
 
 def test_repository_strips_typeorm_schema_parameter_and_preserves_other_options():
     repository = CollectorRepository(
-        "postgresql://user:secret@localhost:5432/manga_atlas?schema=public&sslmode=require"
+        "postgresql://user:secret@db.example:5432/manga_atlas?schema=public&sslmode=require"
     )
 
     assert repository.db_url == (
-        "postgresql://user:secret@localhost:5432/manga_atlas?sslmode=require"
+        "postgresql://user:secret@db.example:5432/manga_atlas?sslmode=require"
     )
+
+
+def test_repository_uses_ipv4_for_localhost_on_windows():
+    url = CollectorRepository._normalize_database_url(
+        "postgresql://user:secret@localhost:5432/manga_atlas?schema=public",
+        windows_ipv4=True,
+    )
+
+    assert url == "postgresql://user:secret@127.0.0.1:5432/manga_atlas"
 
 
 class FixtureClient:

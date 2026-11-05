@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -31,22 +32,36 @@ class CollectorRepository:
             "DATABASE_URL",
             "postgresql://manga_atlas:manga_atlas_secret@localhost:5432/manga_atlas",
         )
-        self.db_url = self._normalize_database_url(configured_url)
+        self.db_url = self._normalize_database_url(
+            configured_url, windows_ipv4=sys.platform == "win32"
+        )
 
     @staticmethod
-    def _normalize_database_url(database_url: str) -> str:
-        """Remove TypeORM's schema option, which psycopg does not accept in a URI."""
+    def _normalize_database_url(
+        database_url: str, *, windows_ipv4: bool = False
+    ) -> str:
+        """Adapt TypeORM URLs to psycopg and Docker's IPv4-only Windows binding."""
         parsed = urlsplit(database_url)
-        if parsed.scheme not in ("postgres", "postgresql") or not parsed.query:
+        if parsed.scheme not in ("postgres", "postgresql"):
             return database_url
-        query = urlencode(
-            [
-                (key, value)
-                for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-                if key.lower() != "schema"
-            ]
-        )
-        return urlunsplit(parsed._replace(query=query))
+        normalized = parsed
+        if windows_ipv4 and parsed.hostname and parsed.hostname.lower() == "localhost":
+            user_info, separator, host_port = parsed.netloc.rpartition("@")
+            if host_port.lower().startswith("localhost"):
+                host_port = "127.0.0.1" + host_port[len("localhost") :]
+                normalized = normalized._replace(
+                    netloc=f"{user_info}{separator}{host_port}"
+                )
+        if parsed.query:
+            query = urlencode(
+                [
+                    (key, value)
+                    for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+                    if key.lower() != "schema"
+                ]
+            )
+            normalized = normalized._replace(query=query)
+        return urlunsplit(normalized)
 
     def get_source_state(self, source_id: str = "bbm") -> dict[str, Any] | None:
         with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
