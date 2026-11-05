@@ -218,6 +218,7 @@ export const adminRoutes: FastifyPluginAsync = async (fastify) => {
 
     const newJob = jobRepo.create({
       sourceId,
+      runType: 'admin_trigger',
       status: 'running',
       recordsProcessed: 0,
       recordsCreated: 0,

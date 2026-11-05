@@ -3,7 +3,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 
 @Entity('import_jobs')
 @Index('UQ_import_jobs_running_source', ['sourceId'], {
   unique: true,
-  where: `"status" = 'running'`,
+  where: `"status" = 'running' AND "runType" <> 'admin_trigger'`,
 })
 export class ImportJob {
   @PrimaryGeneratedColumn('uuid')

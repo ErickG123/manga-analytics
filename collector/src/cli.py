@@ -306,6 +306,9 @@ def main():
                         status="completed" if end_reached else "pending",
                     )
             _write_metrics(args.metrics_json, result)
+        except RuntimeError as exc:
+            print(f"Backfill não iniciado ou interrompido: {exc}")
+            sys.exit(1)
         except KeyboardInterrupt:
             if not args.dry_run:
                 repo.set_checkpoint_status("interrupted")
