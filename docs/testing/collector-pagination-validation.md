@@ -1,6 +1,6 @@
 # Validação de paginação, backfill e checkpoints
 
-Data: 04/11/2026 (horário de São Paulo). Versão inicial: commit `f827790`; alterações desta validação ainda não commitadas.
+Data: 04/11/2026 (horário de São Paulo). Base auditada: branch `main` após o commit `f827790`.
 
 ## Auditoria e implementação
 
