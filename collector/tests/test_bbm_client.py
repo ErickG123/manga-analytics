@@ -107,3 +107,81 @@ def test_bbm_client_ssrf_protection(test_config):
     # Requisição para host não autorizado deve ser rejeitada
     with pytest.raises(ValueError, match="não autorizado"):
         client._get_with_retry("https://evil-site.com/pages/1")
+
+
+def test_catalog_metadata_advances_pages_and_uses_stable_order(test_config):
+    client = BBMClient(config=test_config)
+    client._wait_for_rate_limit = MagicMock()
+    first = MagicMock(spec=httpx.Response)
+    first.status_code = 200
+    first.json.return_value = [{"id": 11}, {"id": 12}]
+    first.headers = {"x-wp-totalpages": "2"}
+    first.raise_for_status = MagicMock()
+    second = MagicMock(spec=httpx.Response)
+    second.status_code = 200
+    second.json.return_value = [{"id": 13}]
+    second.headers = {"x-wp-totalpages": "2"}
+    second.raise_for_status = MagicMock()
+    client.client.get = MagicMock(side_effect=[first, second])
+
+    entries = list(
+        client.iter_catalog_metadata(
+            limit=3, per_page=2, orderby="id", order="asc", max_pages=2
+        )
+    )
+
+    assert [entry["id"] for entry in entries] == [11, 12, 13]
+    assert [
+        call.kwargs["params"]["page"] for call in client.client.get.call_args_list
+    ] == [1, 2]
+    assert all(
+        call.kwargs["params"]["orderby"] == "id"
+        for call in client.client.get.call_args_list
+    )
+
+
+def test_catalog_metadata_falls_back_to_short_page_without_pagination_headers(
+    test_config,
+):
+    client = BBMClient(config=test_config)
+    client._wait_for_rate_limit = MagicMock()
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = 200
+    response.json.return_value = [{"id": 11}]
+    response.headers = {}
+    response.raise_for_status = MagicMock()
+    client.client.get = MagicMock(return_value=response)
+
+    assert list(client.iter_catalog_metadata(limit=3, per_page=3)) == [{"id": 11}]
+    assert client.client.get.call_count == 1
+    assert client.metrics["catalog_end_reached"] is True
+
+
+def test_catalog_metadata_can_resume_at_an_offset_within_a_page(test_config):
+    client = BBMClient(config=test_config)
+    client._wait_for_rate_limit = MagicMock()
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = 200
+    response.json.return_value = [{"id": 11}, {"id": 12}, {"id": 13}]
+    response.headers = {"x-wp-totalpages": "1"}
+    response.raise_for_status = MagicMock()
+    client.client.get = MagicMock(return_value=response)
+
+    entries = list(client.iter_catalog_metadata(limit=2, per_page=3, start_offset=1))
+
+    assert entries == [{"id": 12}, {"id": 13}]
+    assert client.metrics["last_offset"] == 3
+
+
+def test_catalog_metadata_rejects_invalid_payload(test_config):
+    client = BBMClient(config=test_config)
+    client._wait_for_rate_limit = MagicMock()
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = 200
+    response.json.return_value = {"id": 11}
+    response.headers = {}
+    response.raise_for_status = MagicMock()
+    client.client.get = MagicMock(return_value=response)
+
+    assert list(client.iter_catalog_metadata(limit=3)) == []
+    assert client.discovery_errors

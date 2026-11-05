@@ -383,3 +383,51 @@ def test_fixture_imports_of_five_then_ten_works_use_incremental_checkpoint():
         ).fetchone()[0]
         assert counts == (10, 10, 101, 20)
         assert duplicates == duplicate_volumes == 0
+
+
+@pytest.mark.skipif(
+    not os.getenv("COLLECTOR_TEST_DATABASE_URL"),
+    reason="Set COLLECTOR_TEST_DATABASE_URL to an isolated PostgreSQL test database.",
+)
+def test_postgres_backfill_checkpoint_can_resume_and_reset_without_deleting_data():
+    database_url = os.environ["COLLECTOR_TEST_DATABASE_URL"]
+    scope = f"checkpoint-test-{uuid.uuid4().hex}"
+    repository = CollectorRepository(database_url)
+    repository.save_checkpoint(
+        scope=scope,
+        page=4,
+        offset=2,
+        last_external_id="1234",
+        processed_count=15,
+        status="pending",
+    )
+
+    checkpoint = repository.get_checkpoint(scope)
+    assert checkpoint == {
+        "current_page": 4,
+        "current_offset": 2,
+        "last_external_id": "1234",
+        "processed_count": 15,
+        "status": "pending",
+    }
+    assert repository.acquire_checkpoint(scope, page=4) is True
+    assert repository.acquire_checkpoint(scope, page=4) is False
+    assert repository.reset_checkpoint(scope) is False
+
+    repository.save_checkpoint(
+        scope=scope,
+        page=4,
+        last_external_id="1234",
+        processed_count=15,
+        status="failed",
+    )
+    assert repository.reset_checkpoint(scope) is True
+    reset = repository.get_checkpoint(scope)
+    assert reset["current_page"] == 1
+    assert reset["current_offset"] == 0
+
+    with psycopg.connect(database_url) as connection:
+        connection.execute(
+            'DELETE FROM collector_checkpoints WHERE "sourceId" = %s AND scope = %s',
+            ("bbm", scope),
+        )

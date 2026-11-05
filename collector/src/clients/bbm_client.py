@@ -6,6 +6,8 @@ import logging
 import random
 import time
 from collections.abc import Iterator
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -115,11 +117,19 @@ class BBMClient:
                 # HTTP 429 Too Many Requests -> Respeita Retry-After
                 if response.status_code == 429:
                     retry_after = response.headers.get("Retry-After")
-                    delay = (
-                        int(retry_after)
-                        if retry_after and retry_after.isdigit()
-                        else 30
-                    )
+                    delay = 30
+                    if retry_after:
+                        if retry_after.isdigit():
+                            delay = int(retry_after)
+                        else:
+                            try:
+                                retry_at = parsedate_to_datetime(retry_after)
+                                delay = max(
+                                    0,
+                                    int((retry_at - datetime.now(UTC)).total_seconds()),
+                                )
+                            except (TypeError, ValueError, OverflowError):
+                                pass
                     logger.warning(
                         f"HTTP 429 recebido! Respeitando Retry-After de {delay}s..."
                     )
@@ -205,6 +215,11 @@ class BBMClient:
             "circuit_breaker_openings": 0,
             "list_pages": 0,
             "discovered": 0,
+            "last_page": 0,
+            "catalog_total_pages": 0,
+            "catalog_total_items": 0,
+            "last_external_id": "",
+            "catalog_end_reached": False,
         }
 
     def metrics_snapshot(self) -> dict[str, int | float]:
@@ -216,22 +231,36 @@ class BBMClient:
         return result
 
     def iter_catalog_metadata(
-        self, limit: int | None = None
+        self,
+        limit: int | None = None,
+        *,
+        start_page: int = 1,
+        start_offset: int = 0,
+        per_page: int | None = None,
+        max_pages: int | None = None,
+        orderby: str = "modified",
+        order: str = "desc",
     ) -> Iterator[dict[str, Any]]:
-        page = 1
+        if start_page < 1:
+            raise ValueError("start_page deve ser maior que zero")
+        page = start_page
         count = 0
         requested_limit = limit if limit is not None else self.config.max_items_per_run
         max_items = min(requested_limit, self.config.max_items_per_run)
-        max_pages = self.config.max_pages_per_run
+        page_size = max(1, min(100, per_page or max_items))
+        page_limit = min(
+            max_pages or self.config.max_pages_per_run, self.config.max_pages_per_run
+        )
+        pages_read = 0
 
-        while page <= max_pages:
+        while pages_read < page_limit and count < max_items:
             params = {
                 "parent": self.config.parent_catalog_id,
-                "per_page": min(100, max_items),
+                "per_page": page_size,
                 "page": page,
                 "_fields": "id,title,link,modified,parent",
-                "orderby": "modified",
-                "order": "desc",
+                "orderby": orderby,
+                "order": order,
             }
             try:
                 resp = self._get_with_retry(self.config.base_url, params)
@@ -241,18 +270,56 @@ class BBMClient:
                 break
 
             entries = resp.json()
+            if not isinstance(entries, list):
+                self.discovery_errors.append(
+                    f"Resposta inválida na página {page}: esperado array"
+                )
+                break
             self.metrics["list_pages"] += 1
+            pages_read += 1
+            self.metrics["last_page"] = page
+            total_pages_header = resp.headers.get("x-wp-totalpages")
+            total_items_header = resp.headers.get("x-wp-total")
+            try:
+                total_items = int(total_items_header) if total_items_header else None
+            except (TypeError, ValueError):
+                total_items = None
+            if total_items is not None:
+                self.metrics["catalog_total_items"] = max(
+                    int(self.metrics["catalog_total_items"]), total_items
+                )
+            try:
+                total_pages = int(total_pages_header) if total_pages_header else None
+            except (TypeError, ValueError):
+                total_pages = None
+            if total_pages is not None:
+                self.metrics["catalog_total_pages"] = max(
+                    int(self.metrics["catalog_total_pages"]), total_pages
+                )
             if not entries:
+                self.metrics["catalog_end_reached"] = True
                 break
 
-            for entry in entries:
+            for entry_offset, entry in enumerate(entries):
+                if page == start_page and entry_offset < start_offset:
+                    continue
                 yield entry
                 count += 1
                 self.metrics["discovered"] += 1
+                self.metrics["last_external_id"] = str(entry.get("id", ""))
+                self.metrics["last_offset"] = entry_offset + 1
                 if count >= max_items:
                     return
 
-            total_pages = int(resp.headers.get("x-wp-totalpages", page))
-            if page >= total_pages:
+            if total_pages is not None and total_pages < page:
+                self.discovery_errors.append(
+                    f"Header X-WP-TotalPages inconsistente ({total_pages}) na página {page}"
+                )
+                if len(entries) < page_size:
+                    break
+            if (total_pages is not None and page >= total_pages) or len(
+                entries
+            ) < page_size:
+                self.metrics["catalog_end_reached"] = True
                 break
             page += 1

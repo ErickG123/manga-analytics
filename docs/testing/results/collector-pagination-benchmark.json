@@ -1,0 +1,154 @@
+{
+  "measured_at": "2026-11-05T00:19:50.881523+00:00",
+  "environment": "Fixtures locais + PostgreSQL 17 isolado; sem HTTP remoto",
+  "runs": [
+    {
+      "size": 5,
+      "dry_run": true,
+      "repeat": 1,
+      "duration_ms": 24.072,
+      "created": 0,
+      "would_create": 5,
+      "failed": 0,
+      "volumes_created": 0
+    },
+    {
+      "size": 5,
+      "dry_run": true,
+      "repeat": 2,
+      "duration_ms": 14.856,
+      "created": 0,
+      "would_create": 5,
+      "failed": 0,
+      "volumes_created": 0
+    },
+    {
+      "size": 5,
+      "dry_run": true,
+      "repeat": 3,
+      "duration_ms": 14.976,
+      "created": 0,
+      "would_create": 5,
+      "failed": 0,
+      "volumes_created": 0
+    },
+    {
+      "size": 5,
+      "dry_run": false,
+      "repeat": 1,
+      "duration_ms": 184.878,
+      "created": 5,
+      "would_create": 0,
+      "failed": 0,
+      "volumes_created": 5
+    },
+    {
+      "size": 5,
+      "dry_run": false,
+      "repeat": 2,
+      "duration_ms": 156.249,
+      "created": 0,
+      "would_create": 0,
+      "failed": 0,
+      "volumes_created": 0
+    },
+    {
+      "size": 5,
+      "dry_run": false,
+      "repeat": 3,
+      "duration_ms": 176.042,
+      "created": 0,
+      "would_create": 0,
+      "failed": 0,
+      "volumes_created": 0
+    },
+    {
+      "size": 10,
+      "dry_run": true,
+      "repeat": 1,
+      "duration_ms": 15.081,
+      "created": 0,
+      "would_create": 10,
+      "failed": 0,
+      "volumes_created": 0
+    },
+    {
+      "size": 10,
+      "dry_run": true,
+      "repeat": 2,
+      "duration_ms": 14.817,
+      "created": 0,
+      "would_create": 10,
+      "failed": 0,
+      "volumes_created": 0
+    },
+    {
+      "size": 10,
+      "dry_run": true,
+      "repeat": 3,
+      "duration_ms": 24.984,
+      "created": 0,
+      "would_create": 10,
+      "failed": 0,
+      "volumes_created": 0
+    },
+    {
+      "size": 10,
+      "dry_run": false,
+      "repeat": 1,
+      "duration_ms": 398.465,
+      "created": 5,
+      "would_create": 0,
+      "failed": 0,
+      "volumes_created": 5
+    },
+    {
+      "size": 10,
+      "dry_run": false,
+      "repeat": 2,
+      "duration_ms": 366.416,
+      "created": 0,
+      "would_create": 0,
+      "failed": 0,
+      "volumes_created": 0
+    },
+    {
+      "size": 10,
+      "dry_run": false,
+      "repeat": 3,
+      "duration_ms": 325.963,
+      "created": 0,
+      "would_create": 0,
+      "failed": 0,
+      "volumes_created": 0
+    }
+  ],
+  "summary": {
+    "5_dry_run": {
+      "repetitions": 3,
+      "mean_duration_ms": 17.968,
+      "durations_ms": [24.072, 14.856, 14.976]
+    },
+    "5_postgres_write": {
+      "repetitions": 3,
+      "mean_duration_ms": 172.39,
+      "durations_ms": [184.878, 156.249, 176.042]
+    },
+    "10_dry_run": {
+      "repetitions": 3,
+      "mean_duration_ms": 18.294,
+      "durations_ms": [15.081, 14.817, 24.984]
+    },
+    "10_postgres_write": {
+      "repetitions": 3,
+      "mean_duration_ms": 363.615,
+      "durations_ms": [398.465, 366.416, 325.963]
+    }
+  },
+  "final_database_counts": {
+    "mangas": 207,
+    "editions": 207,
+    "volumes": 1652,
+    "price_observations": 422
+  }
+}

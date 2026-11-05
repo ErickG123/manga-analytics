@@ -8,4 +8,5 @@ export * from './price-observation.entity.js';
 export * from './data-source.entity.js';
 export * from './external-reference.entity.js';
 export * from './import-job.entity.js';
+export * from './collector-checkpoint.entity.js';
 export * from './data-quality-issue.entity.js';

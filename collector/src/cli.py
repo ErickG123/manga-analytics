@@ -74,6 +74,32 @@ def main():
         action="store_true",
         help="Simula a sincronização sem persistir no banco",
     )
+
+    backfill_parser = subparsers.add_parser(
+        "backfill", help="Importa progressivamente o catálogo e retoma pelo checkpoint"
+    )
+    backfill_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=5,
+        help="Máximo de obras selecionadas nesta página/lote",
+    )
+    backfill_parser.add_argument(
+        "--resume", action="store_true", help="Continua da página salva no checkpoint"
+    )
+    backfill_parser.add_argument(
+        "--reset-checkpoint",
+        action="store_true",
+        help="Reinicia a posição; não remove dados importados",
+    )
+    backfill_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simula sem persistir obras ou checkpoint",
+    )
+    backfill_parser.add_argument(
+        "--metrics-json", type=Path, help="Salva métricas da execução em JSON"
+    )
     sync_parser.add_argument(
         "--metrics-json",
         type=Path,
@@ -110,6 +136,102 @@ def main():
         )
         _write_metrics(args.metrics_json, result)
         if result.failed > 0 and result.created == 0 and result.updated == 0:
+            sys.exit(1)
+        sys.exit(0)
+    elif args.command == "backfill":
+        if args.batch_size < 1:
+            parser.error("--batch-size deve ser maior que zero")
+        service = ImportService()
+        repo = service.repository
+        if args.reset_checkpoint and not args.dry_run and not repo.reset_checkpoint():
+            parser.error("Não é possível resetar: existe um backfill ativo.")
+        checkpoint = (
+            repo.get_checkpoint() if args.resume and not args.reset_checkpoint else None
+        )
+        start_page = int(checkpoint["current_page"]) if checkpoint else 1
+        start_offset = int(checkpoint.get("current_offset", 0)) if checkpoint else 0
+        if checkpoint and checkpoint["status"] == "completed":
+            print(
+                "Catálogo já marcado como concluído. Use --reset-checkpoint para nova passagem."
+            )
+            sys.exit(0)
+        if not args.dry_run and not repo.acquire_checkpoint(page=start_page):
+            parser.error("Já existe um backfill ativo para a fonte BBM.")
+        processed_count = int(checkpoint["processed_count"]) if checkpoint else 0
+
+        def save_item_checkpoint(offset: int, external_id: str) -> None:
+            nonlocal processed_count
+            processed_count += 1
+            repo.save_checkpoint(
+                page=start_page,
+                offset=offset,
+                last_external_id=external_id or None,
+                processed_count=processed_count,
+                status="running",
+            )
+
+        try:
+            result = service.run_import(
+                limit=args.batch_size,
+                dry_run=args.dry_run,
+                run_type="backfill",
+                start_page=start_page,
+                orderby="id",
+                order="asc",
+                max_pages=1,
+                start_offset=start_offset,
+                item_checkpoint=None if args.dry_run else save_item_checkpoint,
+            )
+            result.config["backfill_start_page"] = start_page
+            result.config["backfill_end_page"] = int(
+                result.http_metrics.get("last_page", start_page)
+            )
+            if not args.dry_run:
+                metrics = result.http_metrics
+                end_reached = bool(metrics.get("catalog_end_reached", False))
+                last_page = int(metrics.get("last_page", start_page))
+                discovery_failed = bool(getattr(service.client, "discovery_errors", []))
+                request_blocked = bool(
+                    metrics.get("status_403", 0) or metrics.get("status_429", 0)
+                )
+                current = repo.get_checkpoint()
+                repo.save_checkpoint(
+                    page=last_page
+                    if request_blocked or discovery_failed
+                    else last_page + 1,
+                    offset=(
+                        int(current.get("current_offset", start_offset))
+                        if current
+                        else start_offset
+                    )
+                    if request_blocked
+                    else 0,
+                    last_external_id=(
+                        current.get("last_external_id")
+                        if request_blocked and current
+                        else str(metrics.get("last_external_id") or "") or None
+                    ),
+                    processed_count=processed_count,
+                    status="pending"
+                    if request_blocked
+                    else "failed"
+                    if discovery_failed
+                    else "completed"
+                    if end_reached
+                    else "pending",
+                )
+            _write_metrics(args.metrics_json, result)
+        finally:
+            if not args.dry_run:
+                checkpoint_now = repo.get_checkpoint()
+                if checkpoint_now and checkpoint_now["status"] == "running":
+                    repo.save_checkpoint(
+                        page=start_page,
+                        last_external_id=None,
+                        processed_count=0,
+                        status="failed",
+                    )
+        if result.failed:
             sys.exit(1)
         sys.exit(0)
     else:

@@ -6,6 +6,7 @@ import hashlib
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
@@ -42,6 +43,12 @@ class ImportService:
         dry_run: bool = False,
         force_refresh: bool = False,
         run_type: str = "import",
+        start_page: int = 1,
+        orderby: str = "modified",
+        order: str = "desc",
+        max_pages: int | None = None,
+        start_offset: int = 0,
+        item_checkpoint: Callable[[int, str], None] | None = None,
     ) -> ImportResult:
         result = ImportResult(run_id=str(uuid.uuid4()), started_at=datetime.now(UTC))
         run_started = time.perf_counter()
@@ -81,7 +88,25 @@ class ImportService:
         )
 
         discovery_started = time.perf_counter()
-        metadata = list(self.client.iter_catalog_metadata(limit=limit))
+        if (
+            start_page == 1
+            and orderby == "modified"
+            and order == "desc"
+            and max_pages is None
+        ):
+            metadata = list(self.client.iter_catalog_metadata(limit=limit))
+        else:
+            metadata = list(
+                self.client.iter_catalog_metadata(
+                    limit=limit,
+                    start_page=start_page,
+                    start_offset=start_offset,
+                    per_page=limit,
+                    orderby=orderby,
+                    order=order,
+                    max_pages=max_pages,
+                )
+            )
         result.timings_ms["discovery_duration_ms"] = (
             time.perf_counter() - discovery_started
         ) * 1000
@@ -101,7 +126,7 @@ class ImportService:
             time.perf_counter() - comparison_started
         ) * 1000
 
-        for meta in metadata:
+        for metadata_offset, meta in enumerate(metadata, start=start_offset):
             if (
                 config
                 and time.perf_counter() - run_started >= config.max_run_duration_seconds
@@ -120,6 +145,8 @@ class ImportService:
                 logger.warning(
                     "Ficha ignorada: listagem sem id ou título (id=%s)", page_id
                 )
+                if item_checkpoint:
+                    item_checkpoint(metadata_offset + 1, str(page_id or ""))
                 continue
 
             prior = states.get(str(page_id))
@@ -139,6 +166,8 @@ class ImportService:
                     page_id,
                     modified,
                 )
+                if item_checkpoint:
+                    item_checkpoint(metadata_offset + 1, str(page_id))
                 continue
 
             result.processed += 1
@@ -168,6 +197,8 @@ class ImportService:
                         "[INALTERADO] %s (hash de conteúdo igual após revalidação)",
                         raw_title,
                     )
+                    if item_checkpoint:
+                        item_checkpoint(metadata_offset + 1, str(page_id))
                     continue
 
                 parse_started = time.perf_counter()
@@ -187,6 +218,8 @@ class ImportService:
                     result.failed += 1
                     result.errors.append(message)
                     logger.error(message)
+                    if item_checkpoint:
+                        item_checkpoint(metadata_offset + 1, str(page_id))
                     continue
                 manga = MangaCollected(
                     title=parsed["title"],
@@ -233,7 +266,10 @@ class ImportService:
                 )
                 validation_started = time.perf_counter()
                 for volume in manga.volumes:
-                    records = [("volume", volume), *[(variant.name, variant) for variant in volume.variants]]
+                    records = [
+                        ("volume", volume),
+                        *[(variant.name, variant) for variant in volume.variants],
+                    ]
                     for record_name, record in records:
                         if record.release_date:
                             validation = validate_release_date(record.release_date)
@@ -271,7 +307,9 @@ class ImportService:
                 )
                 result.volumes_found += len(manga.volumes)
                 result.volumes_with_price += priced_count
-                result.variants_found += sum(len(volume.variants) for volume in manga.volumes)
+                result.variants_found += sum(
+                    len(volume.variants) for volume in manga.volumes
+                )
                 result.variants_with_price += sum(
                     variant.price_amount is not None
                     for volume in manga.volumes
@@ -292,6 +330,8 @@ class ImportService:
                         priced_count,
                         "; persistência não executada",
                     )
+                    if item_checkpoint:
+                        item_checkpoint(metadata_offset + 1, str(page_id))
                 else:
                     database_started = time.perf_counter()
                     outcome = self.repository.save_manga(manga)
@@ -323,6 +363,8 @@ class ImportService:
                             volume.price_amount is not None for volume in manga.volumes
                         ),
                     )
+                    if item_checkpoint:
+                        item_checkpoint(metadata_offset + 1, str(page_id))
 
                 request_ms = float(
                     request_metrics_after.get("http_duration_ms", 0)
@@ -341,6 +383,12 @@ class ImportService:
                 logger.error(message)
                 result.failed += 1
                 result.errors.append(message)
+                response = getattr(exc, "response", None)
+                blocked = isinstance(exc, CircuitBreakerOpenException) or (
+                    response is not None and response.status_code in (403, 429)
+                )
+                if item_checkpoint and not blocked:
+                    item_checkpoint(metadata_offset + 1, str(page_id or ""))
                 response = getattr(exc, "response", None)
                 if isinstance(exc, CircuitBreakerOpenException) or (
                     response is not None and response.status_code in (403, 429)

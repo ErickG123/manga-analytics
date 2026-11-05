@@ -30,6 +30,81 @@ class CollectorRepository:
             "postgresql://manga_atlas:manga_atlas_secret@localhost:5432/manga_atlas",
         )
 
+    def get_checkpoint(self, scope: str = "catalog") -> dict[str, Any] | None:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT "currentPage", "currentOffset", "lastExternalId", "processedCount", status FROM collector_checkpoints WHERE "sourceId" = %s AND scope = %s',
+                ("bbm", scope),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return {
+                "current_page": row[0],
+                "current_offset": row[1],
+                "last_external_id": row[2],
+                "processed_count": row[3],
+                "status": row[4],
+            }
+
+    def save_checkpoint(
+        self,
+        *,
+        scope: str = "catalog",
+        page: int,
+        offset: int = 0,
+        last_external_id: str | None,
+        processed_count: int,
+        status: str,
+    ) -> None:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                '''INSERT INTO collector_checkpoints
+                  ("sourceId", scope, mode, status, "currentPage", "currentOffset", "lastExternalId", "processedCount", "updatedAt", "completedAt")
+                  VALUES ('bbm', %s, 'backfill', %s, %s, %s, %s, %s, NOW(), CASE WHEN %s = 'completed' THEN NOW() ELSE NULL END)
+                  ON CONFLICT ("sourceId", scope) DO UPDATE SET
+                    mode = 'backfill', status = EXCLUDED.status, "currentPage" = EXCLUDED."currentPage", "currentOffset" = EXCLUDED."currentOffset",
+                    "lastExternalId" = EXCLUDED."lastExternalId", "processedCount" = EXCLUDED."processedCount",
+                    "updatedAt" = NOW(), "completedAt" = EXCLUDED."completedAt"''',
+                (
+                    scope,
+                    status,
+                    page,
+                    offset,
+                    last_external_id,
+                    processed_count,
+                    status,
+                ),
+            )
+
+    def acquire_checkpoint(self, scope: str = "catalog", page: int = 1) -> bool:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                '''INSERT INTO collector_checkpoints ("sourceId", scope, mode, status, "currentPage", "updatedAt")
+                   VALUES ('bbm', %s, 'backfill', 'running', %s, NOW())
+                   ON CONFLICT ("sourceId", scope) DO UPDATE SET status = 'running', "updatedAt" = NOW()
+                   WHERE collector_checkpoints.status <> 'running'
+                      OR collector_checkpoints."updatedAt" < NOW() - INTERVAL '45 minutes'
+                   RETURNING "currentPage"''',
+                (scope, page),
+            )
+            return cursor.fetchone() is not None
+
+    def reset_checkpoint(self, scope: str = "catalog") -> bool:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                '''INSERT INTO collector_checkpoints
+                   ("sourceId", scope, mode, status, "currentPage", "processedCount", "updatedAt")
+                   VALUES ('bbm', %s, 'backfill', 'pending', 1, 0, NOW())
+                   ON CONFLICT ("sourceId", scope) DO UPDATE SET
+                     status = 'pending', "currentPage" = 1, "currentOffset" = 0, "lastExternalId" = NULL,
+                     "processedCount" = 0, "completedAt" = NULL, "updatedAt" = NOW()
+                   WHERE collector_checkpoints.status <> 'running'
+                   RETURNING "currentPage"''',
+                (scope,),
+            )
+            return cursor.fetchone() is not None
+
     def get_sync_states(
         self, external_ids: list[str], source_id: str = "bbm"
     ) -> dict[str, dict[str, Any]]:
@@ -108,7 +183,8 @@ class CollectorRepository:
                         (target_variant_id, target_volume_id, source_variant_id),
                     )
                     cursor.execute(
-                        "DELETE FROM volume_variants WHERE id = %s", (source_variant_id,)
+                        "DELETE FROM volume_variants WHERE id = %s",
+                        (source_variant_id,),
                     )
 
             cursor.execute(
@@ -226,6 +302,7 @@ class CollectorRepository:
                     variant.release_date,
                     variant.release_date_precision,
                     variant.release_date_precision,
+                    variant.release_status,
                     variant.release_status,
                     variant.release_year,
                     variant.release_month,
@@ -583,8 +660,10 @@ class CollectorRepository:
                 for volume in data.volumes:
                     volume_id = volume_ids[volume.number]
                     for variant in volume.variants:
-                        variant_status, variant_price_changed = self._save_volume_variant(
-                            cursor, volume_id, variant, source_id
+                        variant_status, variant_price_changed = (
+                            self._save_volume_variant(
+                                cursor, volume_id, variant, source_id
+                            )
                         )
                         variant_counts[variant_status] += 1
                         changed_prices += int(variant_price_changed)
