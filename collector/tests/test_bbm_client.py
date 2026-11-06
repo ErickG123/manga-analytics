@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import httpx
@@ -321,6 +322,30 @@ def test_catalog_metadata_can_resume_at_an_offset_within_a_page(test_config):
 
     assert entries == [{"id": 12}, {"id": 13}]
     assert client.metrics["last_offset"] == 3
+
+
+def test_catalog_metadata_applies_modified_window_as_utc(test_config):
+    client = BBMClient(config=test_config)
+    client._wait_for_rate_limit = MagicMock()
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = 200
+    response.json.return_value = []
+    response.headers = {"x-wp-totalpages": "0"}
+    response.raise_for_status = MagicMock()
+    client.client.get = MagicMock(return_value=response)
+
+    list(
+        client.iter_catalog_metadata(
+            limit=10,
+            modified_after=datetime(2026, 11, 5, 12, 0, tzinfo=UTC),
+            modified_before=datetime(2026, 11, 6, 12, 0, tzinfo=UTC),
+        )
+    )
+
+    params = client.client.get.call_args.kwargs["params"]
+    assert params["modified_after"] == "2026-11-05T12:00:00Z"
+    assert params["modified_before"] == "2026-11-06T12:00:00Z"
+    assert client.metrics["catalog_end_reached"] is True
 
 
 def test_catalog_metadata_rejects_invalid_payload(test_config):

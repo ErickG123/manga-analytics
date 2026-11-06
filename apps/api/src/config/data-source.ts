@@ -24,6 +24,7 @@ import { AddCollectorCheckpoints1762280000000 } from '../migrations/176228000000
 import { AddCollectorRecovery1762290000000 } from '../migrations/1762290000000-AddCollectorRecovery.js';
 import { AddCollectorRecoveryUniqueIndexes1762300000000 } from '../migrations/1762300000000-AddCollectorRecoveryUniqueIndexes.js';
 import { SeparateAdminTriggerJobs1762310000000 } from '../migrations/1762310000000-SeparateAdminTriggerJobs.js';
+import { AddCollectorSyncWindows1793968613189 } from '../migrations/1793968613189-AddCollectorSyncWindows.js';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
@@ -59,6 +60,7 @@ export const AppDataSource = new DataSource({
     AddCollectorRecovery1762290000000,
     AddCollectorRecoveryUniqueIndexes1762300000000,
     SeparateAdminTriggerJobs1762310000000,
+    AddCollectorSyncWindows1793968613189,
   ],
   migrationsRun: true,
   subscribers: [],

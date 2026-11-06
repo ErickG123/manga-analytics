@@ -7,7 +7,7 @@ import json
 import logging
 import sys
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from collector.src.services.import_service import ImportService
@@ -82,7 +82,10 @@ def main():
         help="Executa sincronização incremental baseada em modificações recentes",
     )
     sync_parser.add_argument(
-        "--limit", type=int, default=5, help="Máximo de fichas descobertas para avaliar"
+        "--limit",
+        type=int,
+        default=50,
+        help="Máximo de fichas avaliadas nesta execução (respeita COLLECTOR_MAX_ITEMS_PER_RUN)",
     )
     sync_parser.add_argument(
         "--force-refresh",
@@ -196,17 +199,7 @@ def main():
     elif args.command == "sync":
         if args.limit < 1:
             parser.error("--limit deve ser maior que zero")
-        service = ImportService()
-        result = service.run_import(
-            limit=args.limit,
-            dry_run=args.dry_run,
-            force_refresh=args.force_refresh,
-            run_type="sync",
-        )
-        _write_metrics(args.metrics_json, result)
-        if result.failed > 0 and result.created == 0 and result.updated == 0:
-            sys.exit(1)
-        sys.exit(0)
+        sys.exit(_run_sync(args, parser))
     elif args.command == "backfill":
         if args.batch_size < 1:
             parser.error("--batch-size deve ser maior que zero")
@@ -343,6 +336,174 @@ def main():
     else:
         parser.print_help()
         sys.exit(1)
+
+
+def _run_sync(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from collector.src.repositories.collector_repository import CollectorRepository
+
+    repo = CollectorRepository()
+    checkpoint = repo.get_checkpoint("sync")
+    resumed = bool(checkpoint and checkpoint.get("sync_target_at"))
+    start_page = int(checkpoint["current_page"]) if checkpoint else 1
+    start_offset = int(checkpoint.get("current_offset", 0)) if checkpoint else 0
+    if start_offset >= 100:
+        start_page += 1
+        start_offset = 0
+
+    window = None
+    lock_acquired = False
+    if args.dry_run:
+        if checkpoint and checkpoint.get("sync_target_at"):
+            window = checkpoint
+        else:
+            initial_cursor = repo.get_sync_initial_cursor()
+            if initial_cursor is None:
+                parser.error(
+                    "Conclua o backfill do catálogo antes da primeira sincronização incremental."
+                )
+            window = {
+                "sync_cursor_at": initial_cursor,
+                "sync_target_at": datetime.now(UTC),
+                "sync_overlap_seconds": 300,
+            }
+    else:
+        lock_acquired = repo.acquire_checkpoint(
+            scope="sync", page=start_page, mode="sync"
+        )
+        if not lock_acquired:
+            print("Já existe uma sincronização incremental ativa para a fonte BBM.")
+            return 1
+        try:
+            window = repo.ensure_sync_window(
+                initial_cursor=repo.get_sync_initial_cursor(),
+                target_at=datetime.now(UTC),
+            )
+            start_page = int(window["current_page"])
+            start_offset = int(window["current_offset"])
+            if start_offset >= 100:
+                start_page += 1
+                start_offset = 0
+        except RuntimeError as exc:
+            repo.set_checkpoint_status("failed", scope="sync")
+            print(f"Sincronização não iniciada: {exc}")
+            return 1
+        except Exception as exc:  # noqa: BLE001 - release the sync lease on setup errors
+            repo.set_checkpoint_status("failed", scope="sync")
+            print(f"Não foi possível preparar o checkpoint incremental: {exc}")
+            return 1
+
+    service = ImportService(repository=repo)
+    processed_count = int(checkpoint.get("processed_count", 0)) if checkpoint else 0
+
+    def save_sync_checkpoint(offset: int, external_id: str) -> None:
+        nonlocal processed_count
+        processed_count += 1
+        repo.save_checkpoint(
+            scope="sync",
+            mode="sync",
+            page=start_page,
+            offset=offset,
+            last_external_id=external_id or None,
+            processed_count=processed_count,
+            status="running",
+        )
+
+    try:
+        result = service.run_import(
+            limit=args.limit,
+            dry_run=args.dry_run,
+            force_refresh=args.force_refresh,
+            run_type="sync",
+            start_page=start_page,
+            start_offset=start_offset,
+            max_pages=1,
+            item_checkpoint=None if args.dry_run else save_sync_checkpoint,
+            modified_after=window["sync_cursor_at"]
+            - timedelta(seconds=int(window.get("sync_overlap_seconds", 300))),
+            modified_before=window["sync_target_at"],
+            resumed=resumed,
+        )
+
+        discovery_errors = getattr(service.client, "discovery_errors", [])
+        fatal = bool(
+            result.termination_status or result.retryable_failures or discovery_errors
+        )
+        metrics = result.http_metrics
+        if not args.dry_run:
+            if fatal:
+                repo.set_checkpoint_status(
+                    result.termination_status or "failed", scope="sync"
+                )
+            elif metrics.get("catalog_end_reached", False):
+                repo.complete_sync_window(processed_count=processed_count)
+            else:
+                last_page = int(metrics.get("last_page", start_page))
+                last_offset = int(metrics.get("last_offset", start_offset))
+                if last_offset >= 100:
+                    last_page += 1
+                    last_offset = 0
+                repo.save_checkpoint(
+                    scope="sync",
+                    mode="sync",
+                    page=last_page,
+                    offset=last_offset,
+                    last_external_id=str(metrics.get("last_external_id") or "") or None,
+                    processed_count=processed_count,
+                    status="pending",
+                )
+
+        _write_metrics(args.metrics_json, result)
+        print(
+            json.dumps(
+                {
+                    "run_id": result.run_id,
+                    "selected": result.selected,
+                    "processed": result.processed,
+                    "updated": result.updated,
+                    "unchanged": result.unchanged,
+                    "failed": result.failed,
+                    "next_page": repo.get_checkpoint("sync")["current_page"]
+                    if not args.dry_run and repo.get_checkpoint("sync")
+                    else start_page,
+                    "window_complete": bool(metrics.get("catalog_end_reached", False)),
+                    "sync_cursor_at": window["sync_cursor_at"],
+                    "sync_target_at": window["sync_target_at"],
+                    "dry_run": args.dry_run,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            )
+        )
+        return _backfill_exit_code(result, discovery_errors)
+    except KeyboardInterrupt:
+        if not args.dry_run:
+            repo.set_checkpoint_status("interrupted", scope="sync")
+            if service.active_run_id:
+                repo.finish_import_job(
+                    job_id=service.active_run_id,
+                    status="interrupted",
+                    reason="Interrompido pelo operador; a janela e o checkpoint foram preservados.",
+                    metrics={"http": service.client.metrics_snapshot()},
+                    processed=0,
+                    created=0,
+                    updated=0,
+                    failed=0,
+                    page=start_page,
+                    offset=start_offset,
+                )
+        print("Sincronização interrompida; a próxima execução retomará a janela ativa.")
+        return 130
+    except RuntimeError as exc:
+        if not args.dry_run:
+            repo.set_checkpoint_status("failed", scope="sync")
+        print(f"Sincronização não concluída: {exc}")
+        return 1
+    finally:
+        if lock_acquired:
+            checkpoint_now = repo.get_checkpoint("sync")
+            if checkpoint_now and checkpoint_now["status"] == "running":
+                repo.set_checkpoint_status("interrupted", scope="sync")
 
 
 def _backfill_exit_code(result, discovery_errors: list[str]) -> int:

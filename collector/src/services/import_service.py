@@ -60,6 +60,9 @@ class ImportService:
         start_offset: int = 0,
         item_checkpoint: Callable[[int, str], None] | None = None,
         retry_failed: bool = False,
+        modified_after: datetime | None = None,
+        modified_before: datetime | None = None,
+        resumed: bool = False,
     ) -> ImportResult:
         result = ImportResult(run_id=str(uuid.uuid4()), started_at=datetime.now(UTC))
         self.active_run_id = result.run_id
@@ -134,8 +137,10 @@ class ImportService:
                     job_id=result.run_id,
                     run_type=run_type,
                     started_at=result.started_at,
-                    resumed=run_type == "backfill"
-                    and (start_page > 1 or start_offset > 0),
+                    resumed=resumed
+                    or (
+                        run_type == "backfill" and (start_page > 1 or start_offset > 0)
+                    ),
                 )
                 job_started = True
 
@@ -145,6 +150,20 @@ class ImportService:
             metadata = list_retryable(limit or 10) if list_retryable else []
             if limit is not None:
                 metadata = metadata[:limit]
+        elif run_type == "sync":
+            metadata = list(
+                self.client.iter_catalog_metadata(
+                    limit=limit,
+                    start_page=start_page,
+                    start_offset=start_offset,
+                    per_page=100,
+                    max_pages=1,
+                    orderby="id",
+                    order="asc",
+                    modified_after=modified_after,
+                    modified_before=modified_before,
+                )
+            )
         elif (
             start_page == 1
             and orderby == "modified"

@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -212,6 +213,81 @@ def test_incremental_sync_skips_detail_fetch_when_modified_is_current():
     assert client.fetch_calls == []
 
 
+def test_sync_uses_bounded_modified_window_and_imports_only_changed_fichas():
+    after = datetime(2026, 11, 5, 12, 0, tzinfo=UTC)
+    before = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
+    metadata = [
+        {
+            "id": 123,
+            "title": {"rendered": "Already current"},
+            "link": "https://blogbbm.com/obra/123",
+            "modified": "2026-11-05T12:30:00",
+        },
+        {
+            "id": 456,
+            "title": {"rendered": "Changed work"},
+            "link": "https://blogbbm.com/obra/456",
+            "modified": "2026-11-06T10:30:00",
+        },
+    ]
+
+    class SyncFixtureClient(FixtureClient):
+        def __init__(self):
+            super().__init__(metadata)
+            self.query = None
+
+        def iter_catalog_metadata(self, limit=None, **kwargs):
+            self.query = kwargs
+            yield from self.metadata[:limit]
+
+    class SyncRepository(RecordingRepository):
+        def get_sync_states(self, _external_ids):
+            return {
+                "123": {
+                    "source_modified_at": "2026-11-05T12:30:00",
+                    "sync_status": "complete",
+                },
+                "456": {
+                    "source_modified_at": "2026-11-04T09:00:00",
+                    "sync_status": "complete",
+                },
+            }
+
+    client = SyncFixtureClient()
+    repository = SyncRepository()
+    checkpoints = []
+
+    result = ImportService(client=client, repository=repository).run_import(
+        limit=2,
+        run_type="sync",
+        start_page=3,
+        orderby="id",
+        order="asc",
+        max_pages=1,
+        start_offset=0,
+        modified_after=after,
+        modified_before=before,
+        item_checkpoint=lambda offset, external_id: checkpoints.append(
+            (offset, external_id)
+        ),
+    )
+
+    assert client.query == {
+        "start_page": 3,
+        "start_offset": 0,
+        "per_page": 100,
+        "max_pages": 1,
+        "orderby": "id",
+        "order": "asc",
+        "modified_after": after,
+        "modified_before": before,
+    }
+    assert client.fetch_calls == [456]
+    assert result.unchanged == 1
+    assert result.created == 1
+    assert checkpoints == [(1, "123"), (2, "456")]
+
+
 def test_force_refresh_downloads_details_but_skips_unchanged_content():
     metadata = [
         {
@@ -389,6 +465,199 @@ def test_retry_failed_includes_legacy_data_quality_records(monkeypatch):
 
     repository.resolve_collector_failure("105580")
     assert "category = 'data_quality' AND status = 'needs_review'" in cursor.query
+
+
+def test_sync_window_initialization_and_resume(monkeypatch):
+    import collector.src.repositories.collector_repository as repository_module
+
+    cursor_at = datetime(2026, 11, 5, 12, 0, tzinfo=UTC)
+    target_at = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
+    existing_row = (1, 0, None, 0, "running", None, None, None, 300)
+    created_row = (1, 0, None, 0, "running", cursor_at, target_at, None, 300)
+
+    class FakeCursor:
+        def __init__(self, rows):
+            self.rows = iter(rows)
+            self.queries = []
+
+        def execute(self, query, params=()):
+            self.queries.append((query, params))
+
+        def fetchone(self):
+            return next(self.rows)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeConnection:
+        def __init__(self, cursor):
+            self.cursor_value = cursor
+
+        def cursor(self):
+            return self.cursor_value
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    cursor = FakeCursor([existing_row, created_row])
+    connection = FakeConnection(cursor)
+
+    class ConnectContext:
+        def __enter__(self):
+            return connection
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(
+        repository_module.psycopg, "connect", lambda _url: ConnectContext()
+    )
+    repository = CollectorRepository("postgresql://fixture.invalid/test")
+
+    initialized = repository.ensure_sync_window(
+        initial_cursor=cursor_at, target_at=target_at
+    )
+
+    assert initialized["sync_cursor_at"] == cursor_at
+    assert initialized["sync_target_at"] == target_at
+    assert len(cursor.queries) == 2
+    assert "FOR UPDATE" in cursor.queries[0][0]
+    assert "syncTargetAt" in cursor.queries[1][0]
+    assert cursor.queries[1][1] == (cursor_at, target_at)
+
+
+def test_sync_window_resume_keeps_saved_page_and_target(monkeypatch):
+    cursor_at = datetime(2026, 11, 5, 12, 0, tzinfo=UTC)
+    target_at = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
+    active_row = (
+        4,
+        35,
+        "external-35",
+        135,
+        "running",
+        cursor_at,
+        target_at,
+        None,
+        3600,
+    )
+
+    class FakeCursor:
+        def __init__(self):
+            self.queries = []
+
+        def execute(self, query, _params=()):
+            self.queries.append(query)
+
+        def fetchone(self):
+            return active_row
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeConnection:
+        def __init__(self, cursor):
+            self.cursor_value = cursor
+
+        def cursor(self):
+            return self.cursor_value
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    cursor = FakeCursor()
+    connection = FakeConnection(cursor)
+
+    class ConnectContext:
+        def __enter__(self):
+            return connection
+
+        def __exit__(self, *_args):
+            return False
+
+    import collector.src.repositories.collector_repository as repository_module
+
+    monkeypatch.setattr(
+        repository_module.psycopg, "connect", lambda _url: ConnectContext()
+    )
+    checkpoint = CollectorRepository(
+        "postgresql://fixture.invalid/test"
+    ).ensure_sync_window(
+        initial_cursor=None, target_at=datetime(2026, 11, 7, tzinfo=UTC)
+    )
+
+    assert checkpoint["current_page"] == 4
+    assert checkpoint["current_offset"] == 35
+    assert checkpoint["sync_cursor_at"] == cursor_at
+    assert checkpoint["sync_target_at"] == target_at
+    assert checkpoint["sync_overlap_seconds"] == 3600
+    assert len(cursor.queries) == 1
+
+
+def test_completing_sync_window_advances_cursor_and_keeps_overlap(monkeypatch):
+    import collector.src.repositories.collector_repository as repository_module
+
+    class FakeCursor:
+        def __init__(self):
+            self.query = ""
+            self.params = ()
+
+        def execute(self, query, params=()):
+            self.query = query
+            self.params = params
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeConnection:
+        def __init__(self, cursor):
+            self.cursor_value = cursor
+
+        def cursor(self):
+            return self.cursor_value
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    cursor = FakeCursor()
+    connection = FakeConnection(cursor)
+
+    class ConnectContext:
+        def __enter__(self):
+            return connection
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(
+        repository_module.psycopg, "connect", lambda _url: ConnectContext()
+    )
+
+    CollectorRepository("postgresql://fixture.invalid/test").complete_sync_window(
+        processed_count=55
+    )
+
+    assert cursor.params == (55,)
+    assert '"syncCursorAt" = "syncTargetAt"' in cursor.query
+    assert '"syncTargetAt" = NULL' in cursor.query
+    assert '"syncOverlapSeconds" = GREATEST' in cursor.query
 
 
 def test_rate_limit_persists_source_suspension_and_preserves_checkpoint():

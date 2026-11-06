@@ -336,6 +336,8 @@ class BBMClient:
         max_pages: int | None = None,
         orderby: str = "modified",
         order: str = "desc",
+        modified_after: datetime | None = None,
+        modified_before: datetime | None = None,
     ) -> Iterator[dict[str, Any]]:
         if start_page < 1:
             raise ValueError("start_page deve ser maior que zero")
@@ -358,6 +360,10 @@ class BBMClient:
                 "orderby": orderby,
                 "order": order,
             }
+            if modified_after is not None:
+                params["modified_after"] = self._format_api_datetime(modified_after)
+            if modified_before is not None:
+                params["modified_before"] = self._format_api_datetime(modified_before)
             try:
                 resp = self._get_with_retry(self.config.base_url, params)
             except (
@@ -429,3 +435,9 @@ class BBMClient:
                 self.metrics["catalog_end_reached"] = True
                 break
             page += 1
+
+    @staticmethod
+    def _format_api_datetime(value: datetime) -> str:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")

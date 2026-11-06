@@ -1,4 +1,4 @@
-$maxLotes = 5
+$maxLotes = 300
 $esperaSegundos = 300
 
 for ($lote = 1; $lote -le $maxLotes; $lote++) {

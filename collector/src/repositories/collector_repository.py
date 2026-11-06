@@ -283,7 +283,7 @@ class CollectorRepository:
     def get_checkpoint(self, scope: str = "catalog") -> dict[str, Any] | None:
         with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
             cursor.execute(
-                'SELECT "currentPage", "currentOffset", "lastExternalId", "processedCount", status FROM collector_checkpoints WHERE "sourceId" = %s AND scope = %s',
+                'SELECT "currentPage", "currentOffset", "lastExternalId", "processedCount", status, "syncCursorAt", "syncTargetAt", "completedAt", "syncOverlapSeconds" FROM collector_checkpoints WHERE "sourceId" = %s AND scope = %s',
                 ("bbm", scope),
             )
             row = cursor.fetchone()
@@ -295,7 +295,93 @@ class CollectorRepository:
                 "last_external_id": row[2],
                 "processed_count": row[3],
                 "status": row[4],
+                "sync_cursor_at": row[5],
+                "sync_target_at": row[6],
+                "completed_at": row[7],
+                "sync_overlap_seconds": row[8],
             }
+
+    def get_sync_initial_cursor(self) -> datetime | None:
+        """Return a conservative start point for the first change window."""
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT COALESCE(
+                     (SELECT MAX(job."startedAt") FROM import_jobs job
+                      WHERE job."sourceId" = checkpoint."sourceId"
+                        AND job."runType" = 'backfill'
+                        AND job."checkpointPage" = 1
+                        AND job."startedAt" <= checkpoint."completedAt"),
+                     checkpoint."completedAt")
+                   FROM collector_checkpoints checkpoint
+                   WHERE checkpoint."sourceId" = 'bbm' AND checkpoint.scope = 'catalog'
+                     AND checkpoint.status = 'completed' AND checkpoint."completedAt" IS NOT NULL"""
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def ensure_sync_window(
+        self, *, initial_cursor: datetime | None, target_at: datetime
+    ) -> dict[str, Any]:
+        """Create a bounded sync window or return the active window for resume."""
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT "currentPage", "currentOffset", "lastExternalId", "processedCount",
+                          status, "syncCursorAt", "syncTargetAt", "completedAt", "syncOverlapSeconds"
+                   FROM collector_checkpoints
+                   WHERE "sourceId" = 'bbm' AND scope = 'sync' FOR UPDATE"""
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise RuntimeError("Não foi possível adquirir o checkpoint de sync.")
+
+            current_cursor = row[5]
+            target = row[6]
+            if target is None:
+                if current_cursor is None:
+                    if initial_cursor is None:
+                        raise RuntimeError(
+                            "Conclua o backfill do catálogo antes da primeira sincronização incremental."
+                        )
+                    current_cursor = initial_cursor
+                target = target_at
+                cursor.execute(
+                    '''UPDATE collector_checkpoints
+                       SET mode = 'sync', status = 'running', "currentPage" = 1,
+                           "currentOffset" = 0, "lastExternalId" = NULL,
+                           "syncCursorAt" = %s, "syncTargetAt" = %s,
+                           "completedAt" = NULL, "updatedAt" = NOW()
+                       WHERE "sourceId" = 'bbm' AND scope = 'sync'
+                       RETURNING "currentPage", "currentOffset", "lastExternalId", "processedCount",
+                                 status, "syncCursorAt", "syncTargetAt", "completedAt", "syncOverlapSeconds"''',
+                    (current_cursor, target),
+                )
+                row = cursor.fetchone()
+            return {
+                "current_page": row[0],
+                "current_offset": row[1],
+                "last_external_id": row[2],
+                "processed_count": row[3],
+                "status": row[4],
+                "sync_cursor_at": row[5],
+                "sync_target_at": row[6],
+                "completed_at": row[7],
+                "sync_overlap_seconds": row[8],
+            }
+
+    def complete_sync_window(self, *, processed_count: int) -> None:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """UPDATE collector_checkpoints
+                   SET status = 'completed', "currentPage" = 1, "currentOffset" = 0,
+                       "lastExternalId" = NULL, "processedCount" = %s,
+                       "syncCursorAt" = "syncTargetAt", "syncTargetAt" = NULL,
+                       "syncOverlapSeconds" = GREATEST(
+                         300, EXTRACT(EPOCH FROM ("syncTargetAt" - "syncCursorAt"))::integer
+                       ),
+                       "completedAt" = NOW(), "updatedAt" = NOW()
+                   WHERE "sourceId" = 'bbm' AND scope = 'sync' AND "syncTargetAt" IS NOT NULL""",
+                (processed_count,),
+            )
 
     def save_checkpoint(
         self,
@@ -306,18 +392,20 @@ class CollectorRepository:
         last_external_id: str | None,
         processed_count: int,
         status: str,
+        mode: str = "backfill",
     ) -> None:
         with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
             cursor.execute(
                 '''INSERT INTO collector_checkpoints
                   ("sourceId", scope, mode, status, "currentPage", "currentOffset", "lastExternalId", "processedCount", "updatedAt", "completedAt")
-                  VALUES ('bbm', %s, 'backfill', %s, %s, %s, %s, %s, NOW(), CASE WHEN %s = 'completed' THEN NOW() ELSE NULL END)
+                  VALUES ('bbm', %s, %s, %s, %s, %s, %s, %s, NOW(), CASE WHEN %s = 'completed' THEN NOW() ELSE NULL END)
                   ON CONFLICT ("sourceId", scope) DO UPDATE SET
-                    mode = 'backfill', status = EXCLUDED.status, "currentPage" = EXCLUDED."currentPage", "currentOffset" = EXCLUDED."currentOffset",
+                    mode = EXCLUDED.mode, status = EXCLUDED.status, "currentPage" = EXCLUDED."currentPage", "currentOffset" = EXCLUDED."currentOffset",
                     "lastExternalId" = EXCLUDED."lastExternalId", "processedCount" = EXCLUDED."processedCount",
                     "updatedAt" = NOW(), "completedAt" = EXCLUDED."completedAt"''',
                 (
                     scope,
+                    mode,
                     status,
                     page,
                     offset,
@@ -327,16 +415,18 @@ class CollectorRepository:
                 ),
             )
 
-    def acquire_checkpoint(self, scope: str = "catalog", page: int = 1) -> bool:
+    def acquire_checkpoint(
+        self, scope: str = "catalog", page: int = 1, mode: str = "backfill"
+    ) -> bool:
         with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
             cursor.execute(
                 '''INSERT INTO collector_checkpoints ("sourceId", scope, mode, status, "currentPage", "updatedAt")
-                   VALUES ('bbm', %s, 'backfill', 'running', %s, NOW())
+                   VALUES ('bbm', %s, %s, 'running', %s, NOW())
                    ON CONFLICT ("sourceId", scope) DO UPDATE SET status = 'running', "updatedAt" = NOW()
                    WHERE collector_checkpoints.status <> 'running'
                       OR collector_checkpoints."updatedAt" < NOW() - INTERVAL '45 minutes'
                    RETURNING "currentPage"''',
-                (scope, page),
+                (scope, mode, page),
             )
             return cursor.fetchone() is not None
 

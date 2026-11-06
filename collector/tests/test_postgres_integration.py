@@ -410,6 +410,10 @@ def test_postgres_backfill_checkpoint_can_resume_and_reset_without_deleting_data
         "last_external_id": "1234",
         "processed_count": 15,
         "status": "pending",
+        "sync_cursor_at": None,
+        "sync_target_at": None,
+        "completed_at": None,
+        "sync_overlap_seconds": 300,
     }
     assert repository.acquire_checkpoint(scope, page=4) is True
     assert repository.acquire_checkpoint(scope, page=4) is False

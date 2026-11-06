@@ -12,6 +12,6 @@
 10. `--reset-checkpoint` somente reinicia a posição; não remove dados. Não pode ser usado enquanto o checkpoint estiver ativo.
 11. Verifique jobs/métricas JSON e integridade de referências, edição/volume e observações. A persistência é idempotente para replay.
 12. O catálogo é marcado `completed` quando a API sinaliza fim por `X-WP-TotalPages` ou página curta/vazia. Como a ordenação da fonte pode mudar, planeje uma passagem de reconciliação e não interprete um checkpoint completo como garantia matemática contra alterações concorrentes.
-13. Sincronizações futuras de obras recentes continuam usando `py -m collector.src.cli sync --limit 10`; isso não reinicia o backfill.
+13. Depois do catálogo completo, use `py -m collector.src.cli sync --limit 50` para mudanças incrementais. Repita enquanto a saída indicar `window_complete: false`; a janela é retomada pelo checkpoint. Agende esse comando periodicamente para acompanhar mudanças futuras.
 
 Ver detalhes técnicos e limitações em [Paginação e checkpoints](pagination-and-checkpoints.md).

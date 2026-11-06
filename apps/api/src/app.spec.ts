@@ -131,13 +131,13 @@ describe('Fastify REST API', () => {
   it('GET /api/v1/analytics/releases/by-month deve completar meses vazios com zero', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: '/api/v1/analytics/releases/by-month?yearFrom=2026&yearTo=2026',
+      url: '/api/v1/analytics/releases/by-month?yearFrom=2026&yearTo=2026&manga=__no_matching_manga__',
     });
     expect(res.statusCode).toBe(200);
     const rows = JSON.parse(res.body) as { year: number; month: number; count: number }[];
     expect(rows).toHaveLength(12);
     expect(rows.every((row) => row.year === 2026)).toBe(true);
-    expect(rows.some((row) => row.count === 0)).toBe(true);
+    expect(rows.every((row) => row.count === 0)).toBe(true);
   });
 
   it('GET /api/v1/reports/releases?format=csv deve retornar CSV formatado', async () => {

@@ -26,6 +26,15 @@ export class CollectorCheckpoint {
   @Column({ type: 'int', default: 0 })
   processedCount!: number;
 
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  syncCursorAt?: Date | null;
+
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  syncTargetAt?: Date | null;
+
+  @Column({ type: 'int', default: 300 })
+  syncOverlapSeconds!: number;
+
   @UpdateDateColumn({ type: 'timestamp with time zone' })
   updatedAt!: Date;
 

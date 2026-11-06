@@ -30,3 +30,6 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 .system_generated/
+
+# Backups locally generated from PostgreSQL contain application data
+backups/
