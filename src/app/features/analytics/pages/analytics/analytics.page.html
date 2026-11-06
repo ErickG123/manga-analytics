@@ -8,72 +8,77 @@
 
   <div class="filter-heading">
     <h2>Filtros</h2>
-    <button type="button" class="btn btn-secondary" (click)="clearFilters()">Limpar filtros</button>
+    <p-button
+      label="Limpar filtros"
+      icon="pi pi-filter-slash"
+      severity="secondary"
+      [outlined]="true"
+      (onClick)="clearFilters()"
+    />
   </div>
   <div class="analytics-filters" aria-label="Filtros globais das análises">
-    <label
-      >Ano de lançamento desde<input
-        type="number"
-        min="1900"
-        max="2100"
+    <label for="year-from"
+      >Ano de lançamento desde<p-inputnumber
         [ngModel]="yearFrom()"
-        (ngModelChange)="yearFrom.set(+$event); filtersChanged()"
+        (ngModelChange)="yearFrom.set($event ?? 1900); filtersChanged()"
+        [min]="1900"
+        [max]="2100"
+        [useGrouping]="false"
+        inputId="year-from"
     /></label>
-    <label
-      >Ano até<input
-        type="number"
-        min="1900"
-        max="2100"
+    <label for="year-to"
+      >Ano até<p-inputnumber
         [ngModel]="yearTo()"
-        (ngModelChange)="yearTo.set(+$event); filtersChanged()"
+        (ngModelChange)="yearTo.set($event ?? 1900); filtersChanged()"
+        [min]="1900"
+        [max]="2100"
+        [useGrouping]="false"
+        inputId="year-to"
     /></label>
-    <label
-      >Editora<select
+    <label for="publisher-filter"
+      >Editora<p-select
         [ngModel]="publisherId()"
         (ngModelChange)="publisherId.set($event); filtersChanged()"
-      >
-        <option value="">Todas</option>
-        @for (publisher of publishers(); track publisher.id) {
-          <option [value]="publisher.id">{{ publisher.name }}</option>
-        }
-      </select></label
-    >
+        [options]="publishers()"
+        optionLabel="name"
+        optionValue="id"
+        [showClear]="true"
+        placeholder="Todas"
+        inputId="publisher-filter"
+    /></label>
     @if (categories().length > 1) {
-      <label
-        >Categoria<select
+      <label for="category-filter"
+        >Categoria<p-select
           [ngModel]="category()"
           (ngModelChange)="category.set($event); filtersChanged()"
-        >
-          <option value="">Todas</option>
-          @for (item of categories(); track item) {
-            <option [value]="item">{{ item }}</option>
-          }
-        </select></label
-      >
+          [options]="categories()"
+          [showClear]="true"
+          placeholder="Todas"
+          inputId="category-filter"
+      /></label>
     }
-    <label
-      >Situação do volume<select
+    <label for="status-filter"
+      >Situação do volume<p-select
         [ngModel]="status()"
         (ngModelChange)="status.set($event); filtersChanged()"
-      >
-        <option value="">Todas</option>
-        <option value="released">Lançado</option>
-        <option value="planned">Previsto</option>
-        <option value="unknown">Desconhecido</option>
-      </select></label
-    >
-    <label
-      >Disponibilidade de preço<select
+        [options]="statusOptions"
+        optionLabel="label"
+        optionValue="value"
+        inputId="status-filter"
+    /></label>
+    <label for="price-filter"
+      >Disponibilidade de preço<p-select
         [ngModel]="hasPrice()"
         (ngModelChange)="hasPrice.set($event); filtersChanged()"
-      >
-        <option value="">Todas</option>
-        <option value="true">Com preço</option>
-        <option value="false">Sem preço</option>
-      </select></label
-    >
-    <label
+        [options]="priceOptions"
+        optionLabel="label"
+        optionValue="value"
+        inputId="price-filter"
+    /></label>
+    <label for="manga-filter"
       >Obra<input
+        id="manga-filter"
+        pInputText
         type="search"
         placeholder="Nome da obra"
         [ngModel]="manga()"
@@ -95,16 +100,32 @@
 
   <div class="analytics-grid">
     <article class="metric">
-      <span>OBRAS NO FILTRO</span><strong>{{ overview().totalMangas }}</strong>
+      <span>OBRAS NO FILTRO</span
+      ><strong class="metric-primary">{{
+        overview().totalMangas | number: '1.0-0' : 'pt-BR'
+      }}</strong
+      ><small>Obras distintas após os filtros.</small>
     </article>
     <article class="metric">
-      <span>VOLUMES NO FILTRO</span><strong>{{ overview().totalVolumes }}</strong>
+      <span>VOLUMES NO FILTRO</span
+      ><strong class="metric-primary">{{
+        overview().totalVolumes | number: '1.0-0' : 'pt-BR'
+      }}</strong
+      ><small>Edições/volumes associados às obras.</small>
     </article>
     <article class="metric">
-      <span>VOLUMES LANÇADOS COM ANO</span><strong>{{ overview().releaseCount }}</strong>
+      <span>VOLUMES LANÇADOS COM ANO</span
+      ><strong class="metric-primary">{{
+        overview().releaseCount | number: '1.0-0' : 'pt-BR'
+      }}</strong
+      ><small>Volume com data de lançamento conhecida.</small>
     </article>
     <article class="metric">
-      <span>EDITORAS NO FILTRO</span><strong>{{ overview().totalPublishers }}</strong>
+      <span>EDITORAS NO FILTRO</span
+      ><strong class="metric-primary">{{
+        overview().totalPublishers | number: '1.0-0' : 'pt-BR'
+      }}</strong
+      ><small>Editoras representadas nos resultados.</small>
     </article>
     <article class="metric">
       <span>PREÇO MÉDIO DE CAPA</span
@@ -113,29 +134,36 @@
           ? 'Sem amostra'
           : (overview().averagePrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
       }}</strong
-      ><small>{{ overview().sampleSize }} volumes com preço</small>
+      ><small
+        >{{ overview().sampleSize | number: '1.0-0' : 'pt-BR' }} volumes com preço; valores de capa
+        informados pela fonte.</small
+      >
     </article>
     <article class="metric">
-      <span>COBERTURA DE PREÇOS</span><strong>{{ overview().pricedVolumes }}</strong
+      <span>COBERTURA DE PREÇOS</span
+      ><strong>{{ overview().pricedVolumes | number: '1.0-0' : 'pt-BR' }}</strong
       ><small
         >{{
           overview().priceCoverage === null
             ? 'Sem amostra'
-            : (overview().priceCoverage | percent: '1.0-1')
+            : (overview().priceCoverage | percent: '1.0-1' : 'pt-BR')
         }}
         dos volumes</small
       >
     </article>
     <article class="metric">
-      <span>VOLUMES SEM PREÇO</span><strong>{{ overview().unpricedVolumes }}</strong>
+      <span>VOLUMES SEM PREÇO</span
+      ><strong>{{ overview().unpricedVolumes | number: '1.0-0' : 'pt-BR' }}</strong
+      ><small>Não entram nas estatísticas de preço.</small>
     </article>
     <article class="metric">
-      <span>DATAS COM ANO</span><strong>{{ overview().datedVolumes }}</strong
+      <span>DATAS COM ANO</span
+      ><strong>{{ overview().datedVolumes | number: '1.0-0' : 'pt-BR' }}</strong
       ><small
         >{{
           overview().dateCoverage === null
             ? 'Sem amostra'
-            : (overview().dateCoverage | percent: '1.0-1')
+            : (overview().dateCoverage | percent: '1.0-1' : 'pt-BR')
         }}
         dos volumes</small
       >
@@ -173,8 +201,35 @@
       <p class="muted">Gráficos limitados às 12 editoras com mais volumes no filtro.</p>
     </div>
     <div class="chart-grid">
-      <article class="panel">
-        <h3>Preço médio de capa por editora</h3>
+      <article class="panel" [class.chart-fullscreen]="fullscreenChart() === 'publisher-price'">
+        <div class="panel-heading">
+          <div>
+            <h3>Preço médio de capa por editora</h3>
+            <p-button
+              icon="pi pi-info-circle"
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Sobre este gráfico"
+              pTooltip="Média aritmética dos preços de capa conhecidos por volume. A lista abaixo informa quantos volumes formam cada média."
+              tooltipPosition="top"
+            />
+          </div>
+          <p-button
+            [icon]="
+              fullscreenChart() === 'publisher-price'
+                ? 'pi pi-window-minimize'
+                : 'pi pi-window-maximize'
+            "
+            [text]="true"
+            [rounded]="true"
+            [ariaLabel]="
+              fullscreenChart() === 'publisher-price'
+                ? 'Sair da tela cheia'
+                : 'Exibir em tela cheia'
+            "
+            (onClick)="toggleFullscreen('publisher-price')"
+          />
+        </div>
         <p class="muted">
           Média por volume com preço conhecido; compare também o tamanho da amostra.
         </p>
@@ -188,7 +243,11 @@
           <div class="sample-list" aria-label="Volumes precificados por editora">
             @for (publisher of topPublishers(); track publisher.id) {
               @if (publisher.averagePrice !== null) {
-                <span>{{ publisher.name }}: n={{ publisher.sampleSize }}</span>
+                <span
+                  >{{ publisher.name }}: n={{
+                    publisher.sampleSize | number: '1.0-0' : 'pt-BR'
+                  }}</span
+                >
               }
             }
           </div>
@@ -196,8 +255,35 @@
           <p class="empty-state">Sem volumes com preço nesse filtro.</p>
         }
       </article>
-      <article class="panel">
-        <h3>Cobertura de preços por editora</h3>
+      <article class="panel" [class.chart-fullscreen]="fullscreenChart() === 'publisher-coverage'">
+        <div class="panel-heading">
+          <div>
+            <h3>Cobertura de preços por editora</h3>
+            <p-button
+              icon="pi pi-info-circle"
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Sobre este gráfico"
+              pTooltip="Percentual calculado como volumes com preço conhecido dividido pelo total de volumes da editora no filtro."
+              tooltipPosition="top"
+            />
+          </div>
+          <p-button
+            [icon]="
+              fullscreenChart() === 'publisher-coverage'
+                ? 'pi pi-window-minimize'
+                : 'pi pi-window-maximize'
+            "
+            [text]="true"
+            [rounded]="true"
+            [ariaLabel]="
+              fullscreenChart() === 'publisher-coverage'
+                ? 'Sair da tela cheia'
+                : 'Exibir em tela cheia'
+            "
+            (onClick)="toggleFullscreen('publisher-coverage')"
+          />
+        </div>
         <p class="muted">Percentual de volumes da editora com preço registrado.</p>
         @if (hasPublisherPrices()) {
           <div
@@ -232,14 +318,14 @@
                 @for (publisher of topPublishers(); track publisher.id) {
                   <tr>
                     <td>{{ publisher.name }}</td>
-                    <td>{{ publisher.mangaCount }}</td>
-                    <td>{{ publisher.volumesCount }}</td>
-                    <td>{{ publisher.sampleSize }}</td>
+                    <td>{{ publisher.mangaCount | number: '1.0-0' : 'pt-BR' }}</td>
+                    <td>{{ publisher.volumesCount | number: '1.0-0' : 'pt-BR' }}</td>
+                    <td>{{ publisher.sampleSize | number: '1.0-0' : 'pt-BR' }}</td>
                     <td>
                       {{
                         publisher.priceCoverage === null
                           ? 'Sem amostra'
-                          : (publisher.priceCoverage | percent: '1.0-1')
+                          : (publisher.priceCoverage | percent: '1.0-1' : 'pt-BR')
                       }}
                     </td>
                     <td>
@@ -271,8 +357,31 @@
       <p class="muted">Datas sem mês não são atribuídas a um mês fictício.</p>
     </div>
     <div class="chart-grid">
-      <article class="panel">
-        <h3>Lançamentos por mês</h3>
+      <article class="panel" [class.chart-fullscreen]="fullscreenChart() === 'releases-month'">
+        <div class="panel-heading">
+          <div>
+            <h3>Lançamentos por mês</h3>
+            <p-button
+              icon="pi pi-info-circle"
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Sobre este gráfico"
+              pTooltip="Conta volumes cuja data de lançamento contém ano e mês. Não representa data de coleta nem itens sem mês conhecido."
+              tooltipPosition="top"
+            />
+          </div>
+          <p-button
+            [icon]="
+              fullscreenChart() === 'releases-month'
+                ? 'pi pi-window-minimize'
+                : 'pi pi-window-maximize'
+            "
+            [text]="true"
+            [rounded]="true"
+            ariaLabel="Alternar tela cheia"
+            (onClick)="toggleFullscreen('releases-month')"
+          />
+        </div>
         <p class="muted">
           Volumes com ano e mês de lançamento informados; a situação pode estar desconhecida.
         </p>
@@ -282,8 +391,34 @@
           <p class="empty-state">Não há lançamentos mensais conhecidos nesse filtro.</p>
         }
       </article>
-      <article class="panel panel-wide">
-        <h3>Lançamentos por mês e editora</h3>
+      <article
+        class="panel panel-wide"
+        [class.chart-fullscreen]="fullscreenChart() === 'publisher-timeline'"
+      >
+        <div class="panel-heading">
+          <div>
+            <h3>Lançamentos por mês e editora</h3>
+            <p-button
+              icon="pi pi-info-circle"
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Sobre este gráfico"
+              pTooltip="Cada ponto mostra quantos volumes cada editora lançou no mês; as sete maiores aparecem separadas e as demais são agrupadas."
+              tooltipPosition="top"
+            />
+          </div>
+          <p-button
+            [icon]="
+              fullscreenChart() === 'publisher-timeline'
+                ? 'pi pi-window-minimize'
+                : 'pi pi-window-maximize'
+            "
+            [text]="true"
+            [rounded]="true"
+            ariaLabel="Alternar tela cheia"
+            (onClick)="toggleFullscreen('publisher-timeline')"
+          />
+        </div>
         <p class="muted">
           Exibe até 7 editoras; as demais ficam agrupadas. Datas sem mês não são distribuídas.
         </p>
@@ -300,8 +435,31 @@
           </p>
         }
       </article>
-      <article class="panel">
-        <h3>Lançamentos por ano</h3>
+      <article class="panel" [class.chart-fullscreen]="fullscreenChart() === 'releases-year'">
+        <div class="panel-heading">
+          <div>
+            <h3>Lançamentos por ano</h3>
+            <p-button
+              icon="pi pi-info-circle"
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Sobre este gráfico"
+              pTooltip="Contagem de volumes pelo ano informado de lançamento, respeitando editora, categoria, situação e demais filtros."
+              tooltipPosition="top"
+            />
+          </div>
+          <p-button
+            [icon]="
+              fullscreenChart() === 'releases-year'
+                ? 'pi pi-window-minimize'
+                : 'pi pi-window-maximize'
+            "
+            [text]="true"
+            [rounded]="true"
+            ariaLabel="Alternar tela cheia"
+            (onClick)="toggleFullscreen('releases-year')"
+          />
+        </div>
         <p class="muted">Volumes com ano de lançamento informado e situação selecionada.</p>
         @if (releasesByYear().length) {
           <div #yearChart class="chart" role="img" aria-label="Lançamentos por ano"></div>
@@ -321,8 +479,34 @@
       <p class="muted">Preços de capa da fonte, agrupados pelo ano de lançamento do volume.</p>
     </div>
     <div class="chart-grid">
-      <article class="panel panel-wide">
-        <h3>Preço de capa médio e mediano por ano de lançamento</h3>
+      <article
+        class="panel panel-wide"
+        [class.chart-fullscreen]="fullscreenChart() === 'prices-year'"
+      >
+        <div class="panel-heading">
+          <div>
+            <h3>Preço de capa médio e mediano por ano de lançamento</h3>
+            <p-button
+              icon="pi pi-info-circle"
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Sobre este gráfico"
+              pTooltip="A média é sensível a valores extremos; a mediana representa o valor central. O tamanho da amostra abaixo mostra quantos volumes sustentam cada ano."
+              tooltipPosition="top"
+            />
+          </div>
+          <p-button
+            [icon]="
+              fullscreenChart() === 'prices-year'
+                ? 'pi pi-window-minimize'
+                : 'pi pi-window-maximize'
+            "
+            [text]="true"
+            [rounded]="true"
+            ariaLabel="Alternar tela cheia"
+            (onClick)="toggleFullscreen('prices-year')"
+          />
+        </div>
         <p class="muted">
           Compara o preço de capa informado pelo site para volumes lançados em cada ano. Não é uma
           série de reajustes de um mesmo volume nem correção pela inflação.
@@ -337,7 +521,8 @@
           <div class="sample-list" aria-label="Tamanho das amostras anuais">
             @for (item of pricesByYear(); track item.year) {
               <span
-                >{{ item.year }}: n={{ item.sampleSize }} de {{ item.volumesCount }} volumes</span
+                >{{ item.year }}: n={{ item.sampleSize | number: '1.0-0' : 'pt-BR' }} de
+                {{ item.volumesCount | number: '1.0-0' : 'pt-BR' }} volumes</span
               >
             }
           </div>
@@ -345,8 +530,31 @@
           <p class="empty-state">Não há amostra de preços por ano nesse filtro.</p>
         }
       </article>
-      <article class="panel">
-        <h3>Distribuição por faixa de preço</h3>
+      <article class="panel" [class.chart-fullscreen]="fullscreenChart() === 'price-bands'">
+        <div class="panel-heading">
+          <div>
+            <h3>Distribuição por faixa de preço</h3>
+            <p-button
+              icon="pi pi-info-circle"
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Sobre este gráfico"
+              pTooltip="Agrupa o último preço conhecido de cada volume em intervalos nominais em reais; um volume é contado em uma única faixa."
+              tooltipPosition="top"
+            />
+          </div>
+          <p-button
+            [icon]="
+              fullscreenChart() === 'price-bands'
+                ? 'pi pi-window-minimize'
+                : 'pi pi-window-maximize'
+            "
+            [text]="true"
+            [rounded]="true"
+            ariaLabel="Alternar tela cheia"
+            (onClick)="toggleFullscreen('price-bands')"
+          />
+        </div>
         <p class="muted">Considera o último preço registrado para cada volume.</p>
         @if (priceBands().length) {
           <div
@@ -379,7 +587,10 @@
                     <td>
                       {{ item.averagePrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR' }}
                     </td>
-                    <td>{{ item.sampleSize }} de {{ item.volumesCount }}</td>
+                    <td>
+                      {{ item.sampleSize | number: '1.0-0' : 'pt-BR' }} de
+                      {{ item.volumesCount | number: '1.0-0' : 'pt-BR' }}
+                    </td>
                   </tr>
                 }
               </tbody>
@@ -399,18 +610,18 @@
       a data de observação do preço segue disponível como coluna no arquivo.
     </p>
     <div class="report-actions">
-      <button type="button" class="btn" (click)="downloadReleasesCsv()">
-        <svg aria-hidden="true" viewBox="0 0 24 24">
-          <path d="M12 3v12m-5-5 5 5 5-5M4 19h16"></path>
-        </svg>
-        Baixar lançamentos (CSV)
-      </button>
-      <button type="button" class="btn btn-secondary" (click)="downloadPricesCsv()">
-        <svg aria-hidden="true" viewBox="0 0 24 24">
-          <path d="M12 3v12m-5-5 5 5 5-5M4 19h16"></path>
-        </svg>
-        Baixar preços observados (CSV)
-      </button>
+      <p-button
+        label="Baixar lançamentos (CSV)"
+        icon="pi pi-download"
+        (onClick)="downloadReleasesCsv()"
+      />
+      <p-button
+        label="Baixar preços observados (CSV)"
+        icon="pi pi-download"
+        severity="secondary"
+        [outlined]="true"
+        (onClick)="downloadPricesCsv()"
+      />
     </div>
   </article>
 </section>

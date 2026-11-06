@@ -1,16 +1,22 @@
-import { CurrencyPipe, PercentPipe } from '@angular/common';
+import { CurrencyPipe, DecimalPipe, PercentPipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   computed,
   type ElementRef,
   inject,
+  HostListener,
   type OnDestroy,
   type OnInit,
   signal,
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ButtonModule } from 'primeng/button';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { InputTextModule } from 'primeng/inputtext';
+import { SelectModule } from 'primeng/select';
+import { TooltipModule } from 'primeng/tooltip';
 import * as echarts from 'echarts';
 import { MANGA_REPOSITORY } from '../../../../core/data/manga.repository';
 import { AnalyticsService } from '../../services/analytics.service';
@@ -47,7 +53,17 @@ const EMPTY_OVERVIEW: AnalyticsOverview = {
 @Component({
   selector: 'app-analytics-page',
   standalone: true,
-  imports: [CurrencyPipe, PercentPipe, FormsModule],
+  imports: [
+    CurrencyPipe,
+    DecimalPipe,
+    PercentPipe,
+    FormsModule,
+    ButtonModule,
+    InputNumberModule,
+    InputTextModule,
+    SelectModule,
+    TooltipModule,
+  ],
   templateUrl: './analytics.page.html',
   styleUrl: './analytics.page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -80,6 +96,18 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
   readonly manga = signal('');
   readonly loading = signal(false);
   readonly error = signal('');
+  readonly fullscreenChart = signal<string | null>(null);
+  readonly statusOptions = [
+    { label: 'Todas', value: '' },
+    { label: 'Lançado', value: 'released' },
+    { label: 'Previsto', value: 'planned' },
+    { label: 'Desconhecido', value: 'unknown' },
+  ];
+  readonly priceOptions = [
+    { label: 'Todas', value: '' },
+    { label: 'Com preço', value: 'true' },
+    { label: 'Sem preço', value: 'false' },
+  ];
   readonly periodValid = computed(() => {
     const from = this.yearFrom();
     const to = this.yearTo();
@@ -129,7 +157,23 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     if (this.filterTimer) clearTimeout(this.filterTimer);
     if (this.chartTimer) clearTimeout(this.chartTimer);
     this.resizeObserver?.disconnect();
+    document.body.classList.remove('chart-fullscreen-open');
     for (const chart of this.charts.splice(0)) chart.dispose();
+  }
+
+  toggleFullscreen(chartId: string): void {
+    const next = this.fullscreenChart() === chartId ? null : chartId;
+    this.fullscreenChart.set(next);
+    document.body.classList.toggle('chart-fullscreen-open', next !== null);
+    requestAnimationFrame(() => this.charts.forEach((chart) => chart.resize()));
+  }
+
+  @HostListener('document:keydown.escape')
+  closeFullscreen(): void {
+    if (this.fullscreenChart() === null) return;
+    this.fullscreenChart.set(null);
+    document.body.classList.remove('chart-fullscreen-open');
+    requestAnimationFrame(() => this.charts.forEach((chart) => chart.resize()));
   }
 
   async loadData(): Promise<void> {
@@ -277,7 +321,13 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     this.charts.push(chart);
     chart.setOption({
       backgroundColor: 'transparent',
-      tooltip: { trigger: 'axis' },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#20212b',
+        borderColor: '#424451',
+        textStyle: { color: '#f4f4f6' },
+        valueFormatter: (value: unknown) => this.formatChartValue(value, format),
+      },
       grid: { left: 16, right: 16, bottom: 42, top: 18, containLabel: true },
       xAxis: {
         type: 'category',
@@ -291,8 +341,7 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
         max: format === 'percent' ? 100 : undefined,
         axisLabel: {
           color: '#aaa',
-          formatter:
-            format === 'currency' ? 'R$ {value}' : format === 'percent' ? '{value}%' : '{value}',
+          formatter: (value: number) => this.formatChartValue(value, format),
         },
         splitLine: { lineStyle: { color: '#222' } },
       },
@@ -373,7 +422,13 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     this.charts.push(chart);
     chart.setOption({
       backgroundColor: 'transparent',
-      tooltip: { trigger: 'axis' },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#20212b',
+        borderColor: '#424451',
+        textStyle: { color: '#f4f4f6' },
+        valueFormatter: (value: unknown) => this.formatChartValue(value, 'count'),
+      },
       legend: { type: 'scroll', textStyle: { color: '#bbb' } },
       grid: { left: 16, right: 20, bottom: 56, top: 48, containLabel: true },
       xAxis: {
@@ -386,7 +441,10 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       yAxis: {
         type: 'value',
         minInterval: 1,
-        axisLabel: { color: '#aaa' },
+        axisLabel: {
+          color: '#aaa',
+          formatter: (value: number) => this.formatChartValue(value, 'count'),
+        },
         splitLine: { lineStyle: { color: '#222' } },
       },
       dataZoom: labels.length > 36 ? [{ type: 'inside' }, { type: 'slider', height: 16 }] : [],
@@ -424,7 +482,13 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     this.charts.push(chart);
     chart.setOption({
       backgroundColor: 'transparent',
-      tooltip: { trigger: 'axis' },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#20212b',
+        borderColor: '#424451',
+        textStyle: { color: '#f4f4f6' },
+        valueFormatter: (value: unknown) => this.formatChartValue(value, 'currency'),
+      },
       legend: { textStyle: { color: '#bbb' } },
       grid: { left: 16, right: 20, bottom: 36, top: 42, containLabel: true },
       xAxis: {
@@ -435,7 +499,10 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       },
       yAxis: {
         type: 'value',
-        axisLabel: { color: '#aaa', formatter: 'R$ {value}' },
+        axisLabel: {
+          color: '#aaa',
+          formatter: (value: number) => this.formatChartValue(value, 'currency'),
+        },
         splitLine: { lineStyle: { color: '#222' } },
       },
       series: [
@@ -468,5 +535,18 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       });
     }
     this.resizeObserver?.observe(el);
+  }
+
+  private formatChartValue(value: unknown, format: 'currency' | 'percent' | 'count'): string {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return 'Sem dados';
+    if (format === 'currency') {
+      return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+        numericValue,
+      );
+    }
+    if (format === 'percent')
+      return `${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(numericValue)}%`;
+    return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(numericValue);
   }
 }

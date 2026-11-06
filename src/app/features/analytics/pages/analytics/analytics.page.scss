@@ -64,6 +64,18 @@
   font: inherit;
 }
 
+.analytics-filters p-select,
+.analytics-filters p-inputnumber {
+  display: block;
+  width: 100%;
+}
+
+.analytics-filters p-select ::ng-deep .p-select,
+.analytics-filters p-inputnumber ::ng-deep .p-inputnumber,
+.analytics-filters p-inputnumber ::ng-deep .p-inputnumber-input {
+  width: 100%;
+}
+
 .analytics-filters input:focus-visible,
 .analytics-filters select:focus-visible {
   outline: 2px solid var(--accent-color, #fa5360);
@@ -104,6 +116,11 @@
   overflow-wrap: anywhere;
 }
 
+.metric .metric-primary {
+  color: var(--accent-color, #ef737b);
+  font-size: clamp(1.8rem, 3vw, 2.45rem);
+}
+
 .metric small {
   color: var(--text-muted, #a5a9b8);
   line-height: 1.4;
@@ -132,6 +149,28 @@
   border: 1px solid var(--border-color, #30323d);
   border-radius: 0.9rem;
   background: var(--surface-color, #1b1c24);
+}
+
+.panel-heading,
+.panel-heading > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.panel-heading {
+  min-height: 2.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.panel-heading > div {
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.panel-heading h3 {
+  line-height: 1.35;
 }
 
 .panel h2,
@@ -244,6 +283,36 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+:host ::ng-deep .p-tooltip .p-tooltip-text {
+  max-width: 22rem;
+  line-height: 1.5;
+}
+
+.chart-fullscreen {
+  position: fixed;
+  inset: 1rem;
+  z-index: 1001;
+  display: flex;
+  overflow: auto;
+  flex-direction: column;
+  border-color: var(--accent-color, #ef737b);
+  box-shadow: 0 1rem 4rem rgb(0 0 0 / 45%);
+}
+
+.chart-fullscreen > .muted {
+  min-height: auto;
+}
+
+.chart-fullscreen .chart {
+  flex: 1;
+  min-height: min(68vh, 48rem);
+  height: auto;
+}
+
+.chart-fullscreen .chart-tall {
+  min-height: min(72vh, 54rem);
 }
 .report-actions svg,
 .section-icon {

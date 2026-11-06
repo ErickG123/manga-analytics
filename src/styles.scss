@@ -4,12 +4,39 @@
   color: #eaeaf0;
   background: #101117;
   font-synthesis: none;
+  color-scheme: dark;
+  --app-background: #101117;
+  --app-surface: #1b1c25;
+  --app-surface-raised: #23242d;
+  --app-input-background: #15161c;
+  --app-border: #30313c;
+  --app-text: #eaeaf0;
+  --app-muted: #a4a6b2;
+  --app-accent: #ef737b;
+}
+
+html.app-dark {
+  color-scheme: dark;
+  --p-primary-color: #ef737b;
+  --p-primary-hover-color: #fa8b92;
+  --p-primary-active-color: #dc5962;
+  --p-primary-contrast-color: #17141a;
+}
+
+body.chart-fullscreen-open::before {
+  position: fixed;
+  z-index: 1000;
+  background: rgb(8 9 13 / 82%);
+  content: '';
+  inset: 0;
 }
 * {
   box-sizing: border-box;
 }
 body {
   margin: 0;
+  color: var(--app-text);
+  background: var(--app-background);
 }
 a {
   color: inherit;
