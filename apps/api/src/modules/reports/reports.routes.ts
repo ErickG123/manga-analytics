@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { SelectQueryBuilder } from 'typeorm';
+import type { ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 import { AppDataSource } from '../../config/data-source.js';
 import { PriceObservation, Volume } from '../../entities/index.js';
 import { serializeCsv } from './csv.utils.js';
 import type { ReportFilters } from './models/report-filter.model.js';
 
-function applyFilters(
-  qb: SelectQueryBuilder<Volume>,
+function applyFilters<T extends ObjectLiteral>(
+  qb: SelectQueryBuilder<T>,
   filters: ReportFilters,
   periodAlias = 'volume',
 ): void {
@@ -22,6 +22,8 @@ function applyFilters(
   if (filters.status)
     qb.andWhere(`${periodAlias}."releaseStatus" = :status`, { status: filters.status });
   if (filters.manga) qb.andWhere('manga.title ILIKE :manga', { manga: `%${filters.manga}%` });
+  if (filters.formatType)
+    qb.andWhere('edition."formatType" = :formatType', { formatType: filters.formatType });
 }
 
 function sendCsv(reply: FastifyReply, filename: string, headers: string[], rows: unknown[][]) {
@@ -44,6 +46,10 @@ export async function registerReportsRoutes(app: FastifyInstance) {
       .innerJoin('edition.publisher', 'publisher')
       .select('manga.title', 'obra')
       .addSelect('publisher.name', 'editora')
+      .addSelect('edition.name', 'publicacao')
+      .addSelect('edition.format', 'formato')
+      .addSelect('edition."formatDetails"', 'detalhesFormato')
+      .addSelect('edition."volumesPerBook"', 'volumesPorLivro')
       .addSelect('volume.number', 'volume')
       .addSelect('volume."isbn13"', 'isbn')
       .addSelect('volume."releaseDate"', 'data')
@@ -67,6 +73,10 @@ export async function registerReportsRoutes(app: FastifyInstance) {
     const rows = raw.map((row) => [
       row.obra,
       row.editora,
+      row.publicacao,
+      row.formato,
+      row.detalhesFormato,
+      row.volumesPorLivro,
       `#${row.volume}`,
       row.isbn,
       row.data,
@@ -81,6 +91,10 @@ export async function registerReportsRoutes(app: FastifyInstance) {
         [
           'Obra',
           'Editora',
+          'Publicação',
+          'Formato editorial',
+          'Formato físico informado',
+          'Volumes compilados por livro',
           'Volume',
           'ISBN',
           'Data',
@@ -104,6 +118,10 @@ export async function registerReportsRoutes(app: FastifyInstance) {
       .select('manga.title', 'obra')
       .addSelect('publisher.name', 'editora')
       .addSelect('edition.name', 'edicao')
+      .addSelect('edition.format', 'formato')
+      .addSelect('edition.formatType', 'tipoFormato')
+      .addSelect('edition."formatDetails"', 'detalhesFormato')
+      .addSelect('edition."volumesPerBook"', 'volumesPorLivro')
       .addSelect('volume.number', 'volume')
       .addSelect('observation.amount', 'preco')
       .addSelect('observation.observedAt', 'observedAt')
@@ -116,6 +134,10 @@ export async function registerReportsRoutes(app: FastifyInstance) {
       row.obra,
       row.editora,
       row.edicao,
+      row.formato,
+      row.tipoFormato,
+      row.detalhesFormato,
+      row.volumesPorLivro,
       `#${row.volume}`,
       Number(row.preco).toFixed(2),
       new Date(row.observedAt).toISOString().slice(0, 10),
@@ -129,6 +151,10 @@ export async function registerReportsRoutes(app: FastifyInstance) {
           'Obra',
           'Editora',
           'Edição',
+          'Formato editorial',
+          'Tipo de formato',
+          'Formato físico informado',
+          'Volumes compilados por livro',
           'Volume',
           'Preço observado (BRL)',
           'Data da observação',

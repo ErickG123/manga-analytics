@@ -55,7 +55,7 @@ export async function registerVolumeRoutes(app: FastifyInstance) {
           : 'Histórico temporal completo.',
       observations: observations.map((o) => ({
         id: o.id,
-        price: parseFloat(o.price),
+        price: parseFloat(o.amount),
         observedAt: o.observedAt,
         sourceId: o.sourceId,
       })),

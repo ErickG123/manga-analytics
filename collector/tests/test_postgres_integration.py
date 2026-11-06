@@ -13,6 +13,7 @@ import pytest
 
 from collector.src.models.entities import (
     MangaCollected,
+    PublicationCollected,
     VolumeCollected,
     VolumeVariantCollected,
 )
@@ -280,6 +281,111 @@ def test_same_number_variants_keep_separate_identity_and_price_history():
         ).fetchone()
 
     assert state == (1, 2, 4, Decimal("40.90"), Decimal("52.90"))
+
+
+@pytest.mark.skipif(
+    not os.getenv("COLLECTOR_TEST_DATABASE_URL"),
+    reason="Set COLLECTOR_TEST_DATABASE_URL to an isolated PostgreSQL test database.",
+)
+def test_same_work_and_publisher_keep_multiple_publications_and_distinct_volume_prices():
+    database_url = os.environ["COLLECTOR_TEST_DATABASE_URL"]
+    token = uuid.uuid4().hex
+    repository = CollectorRepository(database_url)
+    work = MangaCollected(
+        title=f"Publication Format Fixture {token}",
+        publisher="Publication Format Test Publisher",
+        external_id=f"publication-format-{token}",
+        external_url="https://fixture.invalid/publication-formats",
+        publications=[
+            PublicationCollected(
+                source_key="1a_publicacao",
+                name="1ª Publicação",
+                format_type="unknown",
+                volumes=[VolumeCollected(number=1, price_amount=Decimal("19.90"))],
+            ),
+            PublicationCollected(
+                source_key="2a_publicacao",
+                name="2ª Publicação",
+                format_type="two_in_one",
+                format_label="2 em 1",
+                format_details="13,7 x 20 cm",
+                volumes_per_book=2,
+                format_evidence="https://fixture.invalid/2-em-1",
+                volumes=[VolumeCollected(number=1, price_amount=Decimal("49.90"))],
+            ),
+        ],
+    )
+
+    first = repository.save_manga(work)
+    second = repository.save_manga(work)
+
+    assert first.status == "created"
+    assert second.status == "unchanged"
+    assert second.volumes_unchanged == 2
+    with psycopg.connect(database_url) as connection:
+        state = connection.execute(
+            """SELECT COUNT(DISTINCT e.id), COUNT(DISTINCT v.id),
+                      COUNT(DISTINCT e.id) FILTER (WHERE e."formatType" = 'two_in_one'),
+                      MAX(e."volumesPerBook") FILTER (WHERE e."formatType" = 'two_in_one'),
+                      ARRAY_AGG(DISTINCT vp.amount ORDER BY vp.amount)
+               FROM mangas m
+               JOIN external_references r ON r."entityId" = m.id
+               JOIN editions e ON e."mangaId" = m.id
+               JOIN volumes v ON v."editionId" = e.id
+               JOIN volume_prices vp ON vp."volumeId" = v.id AND vp."variantId" IS NULL
+               WHERE r."sourceId" = 'bbm' AND r."externalId" = %s""",
+            (work.external_id,),
+        ).fetchone()
+
+    assert state == (2, 2, 1, 2, [Decimal("19.90"), Decimal("49.90")])
+
+
+@pytest.mark.skipif(
+    not os.getenv("COLLECTOR_TEST_DATABASE_URL"),
+    reason="Set COLLECTOR_TEST_DATABASE_URL to an isolated PostgreSQL test database.",
+)
+def test_reparse_moves_legacy_default_edition_to_the_known_brazilian_publisher():
+    database_url = os.environ["COLLECTOR_TEST_DATABASE_URL"]
+    token = uuid.uuid4().hex
+    repository = CollectorRepository(database_url)
+    volume = VolumeCollected(number=1, price_amount=Decimal("29.90"))
+    legacy_work = MangaCollected(
+        title=f"Legacy Publisher Fixture {token}",
+        publisher="Original Publisher Fixture",
+        external_id=f"legacy-publisher-{token}",
+        volumes=[volume],
+    )
+    current_work = MangaCollected(
+        title=legacy_work.title,
+        publisher="Brazilian Publisher Fixture",
+        external_id=legacy_work.external_id,
+        publications=[
+            PublicationCollected(
+                source_key="1a_publicacao",
+                name="1ª Publicação",
+                format_type="regular",
+                format_label="Regular",
+                volumes=[volume],
+            )
+        ],
+    )
+
+    assert repository.save_manga(legacy_work).status == "created"
+    assert repository.save_manga(current_work).status == "updated"
+    with psycopg.connect(database_url) as connection:
+        state = connection.execute(
+            """SELECT COUNT(DISTINCT e.id), MIN(p.name), MIN(e."sourceEditionKey"),
+                      COUNT(DISTINCT v.id)
+               FROM mangas m
+               JOIN external_references r ON r."entityId" = m.id
+               JOIN editions e ON e."mangaId" = m.id
+               JOIN publishers p ON p.id = e."publisherId"
+               JOIN volumes v ON v."editionId" = e.id
+               WHERE r."sourceId" = 'bbm' AND r."externalId" = %s""",
+            (legacy_work.external_id,),
+        ).fetchone()
+
+    assert state == (1, "Brazilian Publisher Fixture", "1a_publicacao", 1)
 
 
 @pytest.mark.skipif(

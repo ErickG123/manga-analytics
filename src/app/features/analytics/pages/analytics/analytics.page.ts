@@ -23,11 +23,13 @@ import { AnalyticsService } from '../../services/analytics.service';
 import type {
   AnalyticsFilters,
   AnalyticsOverview,
+  EditionsByFormat,
   PriceBand,
   PriceByManga,
   PriceByPublisher,
   PriceByYear,
   PublisherReleaseMonth,
+  ReleaseYearRange,
   ReleasesByMonth,
   ReleasesByYear,
 } from '../../models/analytics.model';
@@ -76,6 +78,8 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
   private filterTimer?: ReturnType<typeof setTimeout>;
   private chartTimer?: ReturnType<typeof setTimeout>;
   private resizeObserver?: ResizeObserver;
+  private readonly fallbackYearFrom = new Date().getFullYear() - 10;
+  private readonly fallbackYearTo = new Date().getFullYear();
 
   readonly overview = signal<AnalyticsOverview>(EMPTY_OVERVIEW);
   readonly pricesByPublisher = signal<PriceByPublisher[]>([]);
@@ -85,14 +89,16 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
   readonly publisherReleaseMonths = signal<PublisherReleaseMonth[]>([]);
   readonly releasesByYear = signal<ReleasesByYear[]>([]);
   readonly priceBands = signal<PriceBand[]>([]);
+  readonly editionsByFormat = signal<EditionsByFormat[]>([]);
   readonly publishers = signal<{ id: string; name: string; slug: string }[]>([]);
   readonly categories = signal<string[]>([]);
-  readonly yearFrom = signal(new Date().getFullYear() - 10);
-  readonly yearTo = signal(new Date().getFullYear());
+  readonly yearFrom = signal(this.fallbackYearFrom);
+  readonly yearTo = signal(this.fallbackYearTo);
   readonly publisherId = signal('');
   readonly category = signal('');
   readonly status = signal('');
   readonly hasPrice = signal('');
+  readonly formatType = signal('');
   readonly manga = signal('');
   readonly loading = signal(false);
   readonly error = signal('');
@@ -108,6 +114,28 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     { label: 'Com preço', value: 'true' },
     { label: 'Sem preço', value: 'false' },
   ];
+  readonly formatOptions = [
+    { label: 'Todos os formatos', value: '' },
+    { label: 'Regular', value: 'regular' },
+    { label: '2 em 1', value: 'two_in_one' },
+    { label: '3 em 1', value: 'three_in_one' },
+    { label: 'Omnibus', value: 'omnibus' },
+    { label: 'Edição definitiva', value: 'definitive' },
+    { label: 'Deluxe', value: 'deluxe' },
+    { label: 'Outro formato', value: 'other' },
+    { label: 'Volume convencional', value: 'unknown' },
+  ];
+  readonly formatSummary = computed(() => {
+    const rows = this.editionsByFormat();
+    const editions = rows.reduce((sum, row) => sum + row.editionsCount, 0);
+    const unknown = rows.find((row) => row.formatType === 'unknown')?.editionsCount ?? 0;
+    return {
+      editions,
+      unknown,
+      identified: Math.max(0, editions - unknown),
+      coverage: editions ? Math.max(0, editions - unknown) / editions : null,
+    };
+  });
   readonly periodValid = computed(() => {
     const from = this.yearFrom();
     const to = this.yearTo();
@@ -124,8 +152,13 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
   readonly hasMonthlyReleases = computed(() =>
     this.releasesByMonth().some((month) => month.count > 0),
   );
-  readonly hasYearlyPrices = computed(() =>
-    this.pricesByYear().some((year) => year.sampleSize > 0),
+  readonly hasYearlyPrices = computed(() => this.yearlyPriceRows().length > 0);
+  readonly yearlyPriceRows = computed(() =>
+    [...this.pricesByYear()]
+      .filter(
+        (year) => year.sampleSize > 0 && (year.averagePrice !== null || year.medianPrice !== null),
+      )
+      .sort((left, right) => left.year - right.year),
   );
   readonly rankedManga = computed(() =>
     [...this.pricesByManga()]
@@ -141,15 +174,22 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
   readonly publisherTimelineChartEl =
     viewChild<ElementRef<HTMLDivElement>>('publisherTimelineChart');
   readonly priceYearChartEl = viewChild<ElementRef<HTMLDivElement>>('priceYearChart');
+  readonly formatChartEl = viewChild<ElementRef<HTMLDivElement>>('formatChart');
 
   ngOnInit(): void {
-    void this.repository
-      .getFacets()
-      .then((facets) => {
-        this.publishers.set(facets.publishers);
-        this.categories.set(facets.categories);
-      })
-      .catch(() => undefined);
+    void this.initializeFilters();
+  }
+
+  private async initializeFilters(): Promise<void> {
+    const [facets, yearRange] = await Promise.all([
+      this.repository.getFacets().catch(() => null),
+      this.analyticsService.getReleaseYearRange().catch(() => null),
+    ]);
+    if (facets) {
+      this.publishers.set(facets.publishers);
+      this.categories.set(facets.categories);
+    }
+    if (yearRange) this.applyYearRange(yearRange);
     void this.loadData();
   }
 
@@ -166,6 +206,33 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     this.fullscreenChart.set(next);
     document.body.classList.toggle('chart-fullscreen-open', next !== null);
     requestAnimationFrame(() => this.charts.forEach((chart) => chart.resize()));
+  }
+
+  exportChart(chartId: string): void {
+    const chartElements: Record<string, ElementRef<HTMLDivElement> | undefined> = {
+      'publisher-price': this.publisherChartEl(),
+      'publisher-coverage': this.coverageChartEl(),
+      'releases-month': this.releaseChartEl(),
+      'publisher-timeline': this.publisherTimelineChartEl(),
+      'releases-year': this.yearChartEl(),
+      'edition-formats': this.formatChartEl(),
+      'prices-year': this.priceYearChartEl(),
+      'price-bands': this.bandsChartEl(),
+    };
+    const element = chartElements[chartId]?.nativeElement;
+    const chart = element ? echarts.getInstanceByDom(element) : undefined;
+    if (!chart) return;
+
+    const image = chart.getDataURL({
+      type: 'png',
+      pixelRatio: 2,
+      backgroundColor: '#101117',
+    });
+    const date = new Date().toISOString().slice(0, 10);
+    const link = document.createElement('a');
+    link.href = image;
+    link.download = `manga-atlas-${chartId}-${date}.png`;
+    link.click();
   }
 
   @HostListener('document:keydown.escape')
@@ -187,17 +254,27 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     this.error.set('');
     const filters = this.filters();
     try {
-      const [overview, publishers, mangas, months, publisherMonths, years, pricesYear, bands] =
-        await Promise.all([
-          this.analyticsService.getOverview(filters),
-          this.analyticsService.getPricesByPublisher(filters),
-          this.analyticsService.getPricesByManga(filters),
-          this.analyticsService.getReleasesByMonth(filters),
-          this.analyticsService.getReleaseTimelineByPublisher(filters),
-          this.analyticsService.getReleasesByYear(filters),
-          this.analyticsService.getPricesByYear(filters),
-          this.analyticsService.getPriceBands(filters),
-        ]);
+      const [
+        overview,
+        publishers,
+        mangas,
+        months,
+        publisherMonths,
+        years,
+        pricesYear,
+        bands,
+        formats,
+      ] = await Promise.all([
+        this.analyticsService.getOverview(filters),
+        this.analyticsService.getPricesByPublisher(filters),
+        this.analyticsService.getPricesByManga(filters),
+        this.analyticsService.getReleasesByMonth(filters),
+        this.analyticsService.getReleaseTimelineByPublisher(filters),
+        this.analyticsService.getReleasesByYear(filters),
+        this.analyticsService.getPricesByYear(filters),
+        this.analyticsService.getPriceBands(filters),
+        this.analyticsService.getEditionsByFormat(filters),
+      ]);
       if (requestId !== this.requestId) return;
       this.overview.set(overview);
       this.pricesByPublisher.set(publishers);
@@ -207,6 +284,7 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       this.releasesByYear.set(years);
       this.pricesByYear.set(pricesYear);
       this.priceBands.set(bands);
+      this.editionsByFormat.set(formats);
       this.chartTimer = setTimeout(() => this.renderCharts(), 0);
     } catch {
       if (requestId !== this.requestId) return;
@@ -219,6 +297,7 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       this.releasesByYear.set([]);
       this.pricesByYear.set([]);
       this.priceBands.set([]);
+      this.editionsByFormat.set([]);
       this.chartTimer = setTimeout(() => this.renderCharts(), 0);
     } finally {
       if (requestId === this.requestId) this.loading.set(false);
@@ -226,20 +305,55 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
   }
 
   filtersChanged(): void {
+    this.scheduleFilterLoad(true);
+  }
+
+  yearRangeChanged(): void {
+    this.scheduleFilterLoad(false);
+  }
+
+  private scheduleFilterLoad(refreshYearRange: boolean): void {
     if (this.filterTimer) clearTimeout(this.filterTimer);
     this.requestId += 1;
     this.loading.set(true);
     this.error.set('');
-    this.filterTimer = setTimeout(() => void this.loadData(), 350);
+    this.filterTimer = setTimeout(() => {
+      if (refreshYearRange) void this.refreshYearRangeAndLoad();
+      else void this.loadData();
+    }, 350);
+  }
+
+  private async refreshYearRangeAndLoad(): Promise<void> {
+    const requestId = this.requestId;
+    try {
+      const range = await this.analyticsService.getReleaseYearRange(this.filters());
+      if (requestId !== this.requestId) return;
+      this.applyYearRange(range);
+    } catch {
+      if (requestId === this.requestId) {
+        this.yearFrom.set(this.fallbackYearFrom);
+        this.yearTo.set(this.fallbackYearTo);
+      }
+    }
+    if (requestId === this.requestId) void this.loadData();
+  }
+
+  private applyYearRange(range: ReleaseYearRange): void {
+    const currentYear = new Date().getFullYear();
+    const maxYear = Math.min(2100, Math.max(range.maxYear ?? currentYear, currentYear));
+    const minYear = Math.max(1900, Math.min(range.minYear ?? maxYear - 10, maxYear));
+    this.yearTo.set(Math.min(2100, maxYear));
+    this.yearFrom.set(Math.max(minYear, maxYear - 19));
   }
 
   clearFilters(): void {
-    this.yearFrom.set(new Date().getFullYear() - 10);
-    this.yearTo.set(new Date().getFullYear());
+    this.yearFrom.set(this.fallbackYearFrom);
+    this.yearTo.set(this.fallbackYearTo);
     this.publisherId.set('');
     this.category.set('');
     this.status.set('');
     this.hasPrice.set('');
+    this.formatType.set('');
     this.manga.set('');
     this.filtersChanged();
   }
@@ -261,6 +375,7 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       status: this.status() || undefined,
       hasPrice: this.hasPrice() || undefined,
       manga: this.manga().trim() || undefined,
+      formatType: this.formatType() || undefined,
     };
   }
 
@@ -305,6 +420,13 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     );
     this.renderPublisherTimeline();
     this.renderYearlyPrices();
+    this.renderBar(
+      this.formatChartEl()?.nativeElement,
+      this.editionsByFormat().map((row) => row.label),
+      this.editionsByFormat().map((row) => row.editionsCount),
+      'Publicações',
+      'count',
+    );
   }
 
   private renderBar(
@@ -470,14 +592,10 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
   private renderYearlyPrices(): void {
     const el = this.priceYearChartEl()?.nativeElement;
     if (!el) return;
-    const labels = Array.from(
-      { length: this.yearTo() - this.yearFrom() + 1 },
-      (_, index) => this.yearFrom() + index,
-    );
-    const rows = this.pricesByYear();
+    const rows = this.yearlyPriceRows();
+    const labels = rows.map((row) => row.year);
     if (!labels.length || !rows.length) return;
     this.observeChartSize(el);
-    const prices = new Map(rows.map((row) => [row.year, row]));
     const chart = echarts.init(el);
     this.charts.push(chart);
     chart.setOption({
@@ -509,7 +627,7 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
         {
           name: 'Preço médio',
           type: 'line',
-          data: labels.map((year) => prices.get(year)?.averagePrice ?? null),
+          data: rows.map((row) => row.averagePrice),
           showSymbol: true,
           connectNulls: false,
           lineStyle: { color: '#dc2626', width: 3 },
@@ -518,7 +636,7 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
         {
           name: 'Mediana',
           type: 'line',
-          data: labels.map((year) => prices.get(year)?.medianPrice ?? null),
+          data: rows.map((row) => row.medianPrice),
           showSymbol: true,
           connectNulls: false,
           lineStyle: { color: '#4e9fff', width: 2 },

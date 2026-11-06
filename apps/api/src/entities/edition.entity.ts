@@ -14,7 +14,13 @@ import { Publisher } from './publisher.entity.js';
 import { Volume } from './volume.entity.js';
 
 @Entity('editions')
-@Index('IDX_editions_manga_publisher_unique', ['mangaId', 'publisherId'], { unique: true })
+@Index(
+  'IDX_editions_manga_publisher_source_key_unique',
+  ['mangaId', 'publisherId', 'sourceEditionKey'],
+  {
+    unique: true,
+  },
+)
 export class Edition {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -30,8 +36,23 @@ export class Edition {
   @Column({ type: 'varchar', length: 255 })
   name!: string;
 
-  @Column({ type: 'varchar', length: 100, default: 'Tankobon' })
+  @Column({ type: 'varchar', length: 100, default: 'Não informado' })
   format!: string;
+
+  @Column({ type: 'varchar', length: 120, default: 'default' })
+  sourceEditionKey!: string;
+
+  @Column({ type: 'varchar', length: 30, default: 'unknown' })
+  formatType!: string;
+
+  @Column({ type: 'text', nullable: true })
+  formatDetails?: string | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  volumesPerBook?: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  formatEvidence?: string | null;
 
   @Column({ type: 'varchar', length: 50, default: 'ongoing' })
   status!: string;

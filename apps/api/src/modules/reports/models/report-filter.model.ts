@@ -7,4 +7,5 @@ export interface ReportFilters {
   status?: string;
   hasPrice?: string;
   manga?: string;
+  formatType?: string;
 }

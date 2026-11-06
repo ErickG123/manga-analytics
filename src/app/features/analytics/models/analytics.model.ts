@@ -53,10 +53,23 @@ export interface AnalyticsFilters {
   status?: string;
   hasPrice?: string;
   manga?: string;
+  formatType?: string;
+}
+export interface EditionsByFormat {
+  formatType: string;
+  label: string;
+  editionsCount: number;
+  mangaCount: number;
+  volumesCount: number;
 }
 export interface ReleasesByYear {
   year: number;
   count: number;
+}
+
+export interface ReleaseYearRange {
+  minYear: number | null;
+  maxYear: number | null;
 }
 export interface PriceBand {
   band: string;

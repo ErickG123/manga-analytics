@@ -9,6 +9,28 @@ from typing import Literal
 
 DatePrecision = Literal["day", "month", "year", "unknown"]
 ReleaseStatus = Literal["released", "planned", "unknown"]
+EditionFormatType = Literal[
+    "regular",
+    "two_in_one",
+    "three_in_one",
+    "omnibus",
+    "definitive",
+    "deluxe",
+    "other",
+    "unknown",
+]
+
+
+@dataclass
+class PublicationCollected:
+    source_key: str
+    name: str
+    format_type: EditionFormatType = "unknown"
+    format_label: str | None = None
+    format_details: str | None = None
+    volumes_per_book: int | None = None
+    format_evidence: str | None = None
+    volumes: list[VolumeCollected] = field(default_factory=list)
 
 
 @dataclass
@@ -58,6 +80,7 @@ class MangaCollected:
     source_content_hash: str | None = None
     sync_complete: bool = False
     volumes: list[VolumeCollected] = field(default_factory=list)
+    publications: list[PublicationCollected] = field(default_factory=list)
 
 
 @dataclass

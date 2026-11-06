@@ -20,6 +20,14 @@ describe('CalendarService', () => {
     httpTesting.verify();
   });
 
+  it('carrega editoras por meio do serviço de calendário', async () => {
+    const promise = service.getPublishers();
+    const request = httpTesting.expectOne(`${environment.apiUrl}/publishers`);
+    expect(request.request.method).toBe('GET');
+    request.flush([{ name: 'Panini', slug: 'panini' }]);
+    await expect(promise).resolves.toEqual([{ name: 'Panini', slug: 'panini' }]);
+  });
+
   it('deve obter a lista de lançamentos via GET /releases', async () => {
     const mockData = [
       {
@@ -55,5 +63,20 @@ describe('CalendarService', () => {
 
     const result = await promise;
     expect(result).toEqual(mockResult);
+  });
+
+  it('deve obter apenas o resumo de ano e mês para a timeline', async () => {
+    const mockSummary = [{ year: 2024, month: 8, count: 12 }];
+    const promise = service.getReleaseSummary({ publisher: 'panini', from: '2024-01-01' });
+    const req = httpTesting.expectOne(
+      (request) => request.url === `${environment.apiUrl}/releases/summary`,
+    );
+
+    expect(req.request.method).toBe('GET');
+    expect(req.request.params.get('publisher')).toBe('panini');
+    expect(req.request.params.get('from')).toBe('2024-01-01');
+    req.flush(mockSummary);
+
+    await expect(promise).resolves.toEqual(mockSummary);
   });
 });

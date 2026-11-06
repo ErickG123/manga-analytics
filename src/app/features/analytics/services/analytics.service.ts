@@ -5,11 +5,13 @@ import { environment } from '../../../../environments/environment';
 import type {
   AnalyticsFilters,
   AnalyticsOverview,
+  EditionsByFormat,
   PriceBand,
   PriceByManga,
   PriceByPublisher,
   PriceByYear,
   PublisherReleaseMonth,
+  ReleaseYearRange,
   ReleasesByMonth,
   ReleasesByYear,
 } from '../models/analytics.model';
@@ -62,6 +64,14 @@ export class AnalyticsService {
     };
   }
 
+  async getEditionsByFormat(filters?: AnalyticsFilters): Promise<EditionsByFormat[]> {
+    return await firstValueFrom(
+      this.http.get<EditionsByFormat[]>(`${this.baseUrl}/analytics/editions/by-format`, {
+        params: this.toParams(filters),
+      }),
+    );
+  }
+
   async getPricesByManga(filters?: AnalyticsFilters): Promise<PriceByManga[]> {
     return await firstValueFrom(
       this.http.get<PriceByManga[]>(`${this.baseUrl}/analytics/prices/by-manga`, {
@@ -90,6 +100,17 @@ export class AnalyticsService {
     return await firstValueFrom(
       this.http.get<ReleasesByYear[]>(`${this.baseUrl}/analytics/releases/by-year`, {
         params: this.toParams(filters),
+      }),
+    );
+  }
+
+  async getReleaseYearRange(filters?: AnalyticsFilters): Promise<ReleaseYearRange> {
+    const params = this.toParams(filters);
+    delete params['yearFrom'];
+    delete params['yearTo'];
+    return await firstValueFrom(
+      this.http.get<ReleaseYearRange>(`${this.baseUrl}/analytics/releases/year-range`, {
+        params,
       }),
     );
   }

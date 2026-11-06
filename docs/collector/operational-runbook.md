@@ -6,6 +6,14 @@ Este guia orienta os operadores e desenvolvedores na execução, diagnóstico e 
 
 ## 1. Comandos de Execução da CLI
 
+### 1.0 Console Administrativo
+
+O painel em `/admin/monitoramento` pode iniciar ou retomar o reprocessamento, reiniciar o checkpoint, solicitar pausa após o lote atual e exibir progresso/falhas em atualização ao vivo. O servidor Fastify executa o comando Python com argumentos fixos; o navegador não envia comandos de shell. A pausa preserva o último checkpoint confirmado.
+
+Configure `COLLECTOR_PYTHON_EXECUTABLE` quando o Python não estiver no `PATH` (`py` é o padrão no Windows; `python3` nos demais sistemas) e `COLLECTOR_PROJECT_ROOT` se o diretório de trabalho do processo API não for a raiz do repositório. O servidor da API precisa ter o módulo `collector/`, dependências Python instaladas, acesso ao PostgreSQL e saída HTTPS para o BBM. A tela transmite estado por SSE autenticado e consulta o checkpoint persistido para se recuperar de recarregamentos.
+
+O progresso percentual usa o total de itens informado pelo WordPress e o contador de checkpoint, portanto é estimado e pode variar se o catálogo mudar durante a coleta. Falhas de captura e fichas `needs_review` permanecem registradas em `collector_failures` e são listadas no painel.
+
 ### 1.1 Execução em Modo de Simulação (Dry-Run)
 
 Recomendado para testar parsing e conectividade sem alterar o banco de dados:
@@ -32,7 +40,7 @@ python -m collector.src.cli sync --limit 10 --dry-run
 
 `--force-refresh` baixa novamente os detalhes; o hash do HTML evita persistência quando o conteúdo não mudou. `--metrics-json caminho/relatorio.json` exporta métricas da execução. O dry-run não persiste dados.
 
-**Restrição vigente:** a validação remota está bloqueada enquanto não houver confirmação de autorização e condições de coleta/armazenamento pela fonte. `robots.txt` não constitui essa autorização. Os testes aprovados usam fixtures locais e PostgreSQL isolado; veja o [relatório de validação](../testing/collector-import-validation.md).
+**Autorização operacional:** o operador deste projeto autorizou consultas remotas ao BBM mesmo quando `robots.txt` não permita a rota. Essa autorização não instrui o Collector a ignorar respostas do servidor: 429 aciona cooldown e 403 mantém a origem bloqueada para revisão. Não contorne status HTTP nem aumente concorrência para acelerar uma carga. As simulações e testes locais continuam separados de uma importação persistente; consulte o [relatório de validação](../testing/collector-import-validation.md).
 
 ---
 

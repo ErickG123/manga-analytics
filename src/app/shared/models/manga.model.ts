@@ -14,7 +14,17 @@ export interface Manga {
   coverUrl?: string | null;
   volumesCount?: number;
   updatedAt?: string;
-  editions?: { id: string; name: string; format: string; status: string; publisher: string }[];
+  editions?: {
+    id: string;
+    name: string;
+    format: string;
+    formatType: string;
+    formatDetails: string | null;
+    volumesPerBook: number | null;
+    formatEvidence: string | null;
+    status: string;
+    publisher: string;
+  }[];
   volumes: Volume[];
   sourceUrl?: string;
   sourceUpdatedAt?: string;

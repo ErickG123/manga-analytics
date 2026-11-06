@@ -8,6 +8,10 @@ export interface MangaVolumeVariantDto {
 
 export interface MangaVolumeDto {
   id: string;
+  editionId: string;
+  editionName: string;
+  editionFormat: string;
+  editionFormatType: string;
   number: number;
   title?: string | null;
   isbn13?: string | null;
@@ -36,14 +40,20 @@ export interface MangaListItemDto {
   volumes: MangaVolumeDto[];
 }
 
+export interface MangaEditionDto {
+  id: string;
+  name: string;
+  format: string;
+  formatType: string;
+  formatDetails: string | null;
+  volumesPerBook: number | null;
+  formatEvidence: string | null;
+  status: string;
+  publisher: string;
+}
+
 export interface MangaDetailDto extends MangaListItemDto {
-  editions: {
-    id: string;
-    name: string;
-    format: string;
-    status: string;
-    publisher: string;
-  }[];
+  editions: MangaEditionDto[];
 }
 
 export interface MangaQueryParams {

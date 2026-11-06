@@ -3,7 +3,7 @@ param(
 )
 
 $maxLotes = 300
-$esperaSegundos = 300
+$esperaSegundos = 30
 
 for ($lote = 1; $lote -le $maxLotes; $lote++) {
     Write-Host "`nLote $lote de $maxLotes"
@@ -60,7 +60,7 @@ for ($lote = 1; $lote -le $maxLotes; $lote++) {
     try {
         $collectorArgs = @(
             "backfill",
-            "--batch-size", "5",
+            "--batch-size", "100",
             "--resume",
             "--metrics-json", $metricsPath
         )

@@ -5,10 +5,12 @@ import { escapeCsvCell } from './modules/reports/csv.utils.js';
 
 describe('Fastify REST API', () => {
   let app: FastifyInstance;
+  let appAddress: string;
 
   beforeAll(async () => {
     app = await buildApp();
     await app.ready();
+    appAddress = await app.listen({ host: '127.0.0.1', port: 0 });
   });
 
   afterAll(async () => {
@@ -91,6 +93,54 @@ describe('Fastify REST API', () => {
     if (body.data.length > 0) expect(body.data[0]).toHaveProperty('precision');
   });
 
+  it('GET /api/v1/releases deve paginar corretamente por intervalo de datas e editora', async () => {
+    const publishersResponse = await app.inject({ method: 'GET', url: '/api/v1/publishers' });
+    const publishers = JSON.parse(publishersResponse.body) as { slug: string }[];
+    const publisher = publishers.find((item) => item.slug === 'panini');
+    expect(publisher).toBeDefined();
+
+    for (const publisherSlug of [undefined, publisher?.slug]) {
+      const query = new URLSearchParams({
+        from: '2022-01-01',
+        to: '2026-12-31',
+        page: '1',
+        limit: '100',
+      });
+      if (publisherSlug) query.set('publisher', publisherSlug);
+      const res = await app.inject({ method: 'GET', url: `/api/v1/releases?${query}` });
+
+      expect(res.statusCode, res.body).toBe(200);
+      const body = JSON.parse(res.body) as {
+        data: { publisher: string }[];
+        pagination: { total: number; limit: number; page: number };
+      };
+      expect(body.data.length).toBeLessThanOrEqual(100);
+      expect(body.pagination.limit).toBe(100);
+      expect(body.pagination.page).toBe(1);
+      expect(body.pagination.total).toBeGreaterThanOrEqual(body.data.length);
+      if (publisherSlug) {
+        expect(body.data.every((item) => item.publisher.toLowerCase().includes('panini'))).toBe(
+          true,
+        );
+      }
+    }
+  });
+
+  it('GET /api/v1/releases/summary agrupa volumes por ano e mês de lançamento', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/releases/summary?from=2022-01-01&to=2026-12-31&publisher=panini',
+    });
+
+    expect(res.statusCode, res.body).toBe(200);
+    const rows = JSON.parse(res.body) as { year: number; month: number | null; count: number }[];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.year >= 2022 && row.year <= 2026 && row.count > 0)).toBe(true);
+    expect(rows.every((row) => row.month === null || (row.month >= 1 && row.month <= 12))).toBe(
+      true,
+    );
+  });
+
   it('GET /api/v1/mangas deve combinar busca e filtros no backend', async () => {
     const res = await app.inject({
       method: 'GET',
@@ -138,6 +188,21 @@ describe('Fastify REST API', () => {
     expect(rows).toHaveLength(12);
     expect(rows.every((row) => row.year === 2026)).toBe(true);
     expect(rows.every((row) => row.count === 0)).toBe(true);
+  });
+
+  it('GET /api/v1/analytics/releases/year-range retorna anos de lançamento por filtro', async () => {
+    const publisherResponse = await app.inject({ method: 'GET', url: '/api/v1/publishers' });
+    const publishers = JSON.parse(publisherResponse.body) as { id: string }[];
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/analytics/releases/year-range?publisherId=${publishers[0].id}&yearFrom=2025&yearTo=2026`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const range = JSON.parse(res.body) as { minYear: number | null; maxYear: number | null };
+    expect(range.minYear).not.toBeNull();
+    expect(range.maxYear).not.toBeNull();
+    expect(range.minYear).toBeLessThanOrEqual(range.maxYear as number);
   });
 
   it('GET /api/v1/reports/releases?format=csv deve retornar CSV formatado', async () => {
@@ -198,17 +263,64 @@ describe('Fastify REST API', () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it('POST /api/admin/jobs/trigger com job ativo deve retornar 409 Conflict', async () => {
-    // Limpar jobs running legados que possam ter sobrado de execuções anteriores
-    const { AppDataSource } = await import('./config/data-source.js');
-    const { ImportJob } = await import('./entities/index.js');
-    await AppDataSource.getRepository(ImportJob).update(
-      { status: 'running' },
-      { status: 'completed' },
-    );
+  it('GET /api/admin/collector/control/status exige autenticação', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/admin/collector/control/status',
+    });
+    expect(res.statusCode).toBe(401);
+  });
 
-    // 1º disparo
-    const res1 = await app.inject({
+  it('POST /api/admin/collector/backfill/pause exige autenticação', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/admin/collector/backfill/pause',
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('POST /api/admin/collector/backfill/pause sem worker ativo retorna 409', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/admin/collector/backfill/pause',
+      headers: { authorization: 'Bearer atlas_admin_secret_token_2026' },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it('GET /api/admin/collector/control/status retorna progresso autenticado', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/admin/collector/control/status',
+      headers: { authorization: 'Bearer atlas_admin_secret_token_2026' },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      runner: { status: string };
+      checkpoint: { currentPage: number } | null;
+      catalog: { processedItems: number; percentComplete: number | null };
+      failures: { pending: number; items: unknown[] };
+    };
+    expect(body.runner.status).toBeDefined();
+    expect(body.catalog.processedItems).toBeGreaterThanOrEqual(0);
+    expect(Array.isArray(body.failures.items)).toBe(true);
+  });
+
+  it('GET /api/admin/collector/events publica snapshots SSE autenticados', async () => {
+    const controller = new AbortController();
+    const response = await fetch(`${appAddress}/api/admin/collector/events`, {
+      headers: { authorization: 'Bearer atlas_admin_secret_token_2026' },
+      signal: controller.signal,
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    const firstEvent = await response.body?.getReader().read();
+    expect(new TextDecoder().decode(firstEvent?.value)).toContain('event: collector');
+    controller.abort();
+  });
+
+  it('POST /api/admin/jobs/trigger não cria mais uma execução simulada', async () => {
+    const res = await app.inject({
       method: 'POST',
       url: '/api/admin/jobs/trigger',
       headers: {
@@ -216,27 +328,8 @@ describe('Fastify REST API', () => {
       },
       payload: { limit: 5 },
     });
-    expect(res1.statusCode).toBe(200);
-    const body1 = JSON.parse(res1.body) as { jobId: string };
-
-    // 2º disparo simultâneo imediato deve colidir em 409 Conflict
-    const res2 = await app.inject({
-      method: 'POST',
-      url: '/api/admin/jobs/trigger',
-      headers: {
-        authorization: 'Bearer atlas_admin_secret_token_2026',
-      },
-      payload: { limit: 5 },
-    });
-    expect(res2.statusCode).toBe(409);
-    const body2 = JSON.parse(res2.body);
-    expect(body2.message).toContain('Já existe uma sincronização em andamento');
-
-    await new Promise((resolve) => setTimeout(resolve, 2100));
-    const completedJob = await AppDataSource.getRepository(ImportJob).findOneBy({
-      id: body1.jobId,
-    });
-    expect(completedJob?.status).toBe('completed');
+    expect(res.statusCode).toBe(410);
+    expect(JSON.parse(res.body).message).toContain('/collector/backfill/start');
   });
 
   it('GET /api/v1/analytics/prices/by-year deve retornar evolução por ano', async () => {
@@ -259,6 +352,27 @@ describe('Fastify REST API', () => {
       expect(body[0]).toHaveProperty('medianPrice');
       expect(body[0].sampleSize).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  it('GET /api/v1/analytics/editions/by-format deve retornar contagens e cobertura desconhecida', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/analytics/editions/by-format',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      formatType: string;
+      label: string;
+      editionsCount: number;
+      mangaCount: number;
+      volumesCount: number;
+    }[];
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.every((row) => row.editionsCount > 0 && row.volumesCount > 0)).toBe(true);
+    expect(
+      body.some((row) => row.formatType === 'unknown' && row.label === 'Volume convencional'),
+    ).toBe(true);
   });
 
   it('GET /api/v1/analytics/releases/by-publisher-month deve agregar séries com os filtros', async () => {

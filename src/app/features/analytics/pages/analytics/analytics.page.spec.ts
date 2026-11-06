@@ -19,6 +19,7 @@ describe('AnalyticsPageComponent', () => {
         {
           provide: AnalyticsService,
           useValue: {
+            getReleaseYearRange: async () => ({ minYear: 1990, maxYear: 2026 }),
             getOverview: async () => ({
               totalMangas: 12,
               totalVolumes: 3456,
@@ -43,6 +44,7 @@ describe('AnalyticsPageComponent', () => {
             getReleasesByYear: async () => [],
             getPricesByYear: async () => [],
             getPriceBands: async () => [],
+            getEditionsByFormat: async () => [],
             downloadReleasesCsvUrl: () => '/reports/releases?format=csv',
             downloadPricesCsvUrl: () => '/reports/prices?format=csv',
           },
@@ -69,6 +71,17 @@ describe('AnalyticsPageComponent', () => {
     fixture.destroy();
   });
 
+  it('defaults to the latest 20-year window available from actual release dates', async () => {
+    const fixture = TestBed.createComponent(AnalyticsPageComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fixture.componentInstance.yearFrom()).toBe(2007);
+    expect(fixture.componentInstance.yearTo()).toBe(2026);
+    fixture.destroy();
+  });
+
   it('closes fullscreen when Escape is handled', () => {
     const fixture = TestBed.createComponent(AnalyticsPageComponent);
     const component = fixture.componentInstance;
@@ -78,6 +91,19 @@ describe('AnalyticsPageComponent', () => {
 
     expect(component.fullscreenChart()).toBeNull();
     expect(document.body.classList.contains('chart-fullscreen-open')).toBe(false);
+    fixture.destroy();
+  });
+
+  it('adds a PNG export action for each chart', async () => {
+    const fixture = TestBed.createComponent(AnalyticsPageComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const buttons = fixture.nativeElement.querySelectorAll(
+      'button[aria-label="Exportar gráfico como imagem"]',
+    ) as NodeListOf<HTMLButtonElement>;
+    expect(buttons.length).toBe(8);
     fixture.destroy();
   });
 
@@ -94,6 +120,39 @@ describe('AnalyticsPageComponent', () => {
     expect(content).toContain('31,89');
     expect(content).toContain('Preço de capa no lançamento.');
     expect(content).toContain('Não há lançamentos mensais conhecidos');
+    fixture.destroy();
+  });
+
+  it('keeps years without known prices out of the price trend while preserving their volume counts', () => {
+    const fixture = TestBed.createComponent(AnalyticsPageComponent);
+    const component = fixture.componentInstance;
+    component.pricesByYear.set([
+      { year: 2025, averagePrice: 49.9, medianPrice: 47.9, sampleSize: 4, volumesCount: 5 },
+      { year: 2026, averagePrice: null, medianPrice: null, sampleSize: 0, volumesCount: 12 },
+      { year: 2027, averagePrice: 52, medianPrice: 50, sampleSize: 2, volumesCount: 3 },
+    ]);
+
+    expect(component.yearlyPriceRows().map((row) => row.year)).toEqual([2025, 2027]);
+    expect(component.pricesByYear()[1].volumesCount).toBe(12);
+    fixture.destroy();
+  });
+
+  it('keeps publication, work, and volume totals distinct by format', () => {
+    const fixture = TestBed.createComponent(AnalyticsPageComponent);
+    const component = fixture.componentInstance;
+    component.editionsByFormat.set([
+      {
+        formatType: 'unknown',
+        label: 'Volume convencional',
+        editionsCount: 922,
+        mangaCount: 921,
+        volumesCount: 6158,
+      },
+    ]);
+
+    expect(component.formatSummary().editions).toBe(922);
+    expect(component.editionsByFormat()[0].mangaCount).toBe(921);
+    expect(component.editionsByFormat()[0].volumesCount).toBe(6158);
     fixture.destroy();
   });
 });

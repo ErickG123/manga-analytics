@@ -28,6 +28,35 @@
   }
 }
 
+.publication-list {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.publication-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.65rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--border-color, #30313c);
+  border-radius: 0.65rem;
+  background: var(--surface-color, #1b1c25);
+  font-size: 0.88rem;
+}
+
+.publication-item strong {
+  color: var(--accent-color, #ef737b);
+}
+
+.publication-item small,
+.volume-edition-label {
+  display: block;
+  color: var(--text-muted, #a4a6b2);
+  font-size: 0.78rem;
+}
+
 .volume-filters {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MangaService } from '../services/manga.service.js';
 import type { MangaRepository } from '../repositories/manga.repository.js';
-import type { Manga } from '../../../entities/index.js';
+import type { Edition, Manga, Volume } from '../../../entities/index.js';
 
 describe('MangaService (Unit Tests)', () => {
   it('inclui URL e data da referência externa no detalhe da obra', async () => {
@@ -36,8 +36,13 @@ describe('MangaService (Unit Tests)', () => {
       editions: [
         {
           id: 'ed-1',
+          sourceEditionKey: 'default',
           name: 'Padrão',
           format: 'Tankobon',
+          formatType: 'two_in_one',
+          formatDetails: '13,7 x 20 cm',
+          volumesPerBook: 2,
+          formatEvidence: '2-em-1 na ficha da fonte',
           status: 'ongoing',
           mangaId: 'm-1',
           publisherId: 'pub-1',
@@ -126,6 +131,8 @@ describe('MangaService (Unit Tests)', () => {
     expect(result.data[0].publisher).toBe('Panini');
     expect(result.data[0].volumes.length).toBe(1);
     expect(result.data[0].volumes[0].coverPriceBrl).toBe(16.9);
+    expect(result.data[0].volumes[0].editionName).toBe('Padrão');
+    expect(result.data[0].volumes[0].editionFormatType).toBe('two_in_one');
     expect(result.data[0].volumes[0].variants).toEqual([
       {
         id: 'var-1',

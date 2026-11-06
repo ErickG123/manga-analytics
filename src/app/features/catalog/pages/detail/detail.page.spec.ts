@@ -21,9 +21,26 @@ describe('DetailPageComponent', () => {
     initials: 'OB',
     coverUrl: 'https://example.test/cover.jpg',
     volumesCount: 2,
+    editions: [
+      {
+        id: 'edition-1',
+        name: '2ª Publicação',
+        format: '2 em 1',
+        formatType: 'two_in_one',
+        formatDetails: '13,7 x 20 cm',
+        volumesPerBook: 2,
+        formatEvidence: 'link da loja indica 2 em 1',
+        status: 'ongoing',
+        publisher: 'JBC',
+      },
+    ],
     volumes: [
       {
         id: 'v-1',
+        editionId: 'edition-1',
+        editionName: '2ª Publicação',
+        editionFormat: '2 em 1',
+        editionFormatType: 'two_in_one',
         number: 1,
         isbn13: '9781234567890',
         release: { value: '15/04/2025', precision: 'day', status: 'released' },
@@ -91,5 +108,17 @@ describe('DetailPageComponent', () => {
     expect(detail).toContain('Blind Pack');
     expect(detail).toContain('18/04/2025');
     expect(detail).toContain('R$ 49,90');
+  });
+
+  it('exibe formato editorial e quantidade de volumes reunidos por livro', () => {
+    const detail = fixture.nativeElement.textContent as string;
+    expect(detail).toContain('2ª Publicação');
+    expect(detail).toContain('2 em 1');
+    expect(detail).toContain('reúne 2 volumes em cada livro');
+    expect(detail).toContain('Formato físico: 13,7 x 20 cm');
+  });
+
+  it('usa volume convencional como rótulo padrão para formato sem classificação', () => {
+    expect(fixture.componentInstance.formatTypeLabel('unknown')).toBe('Volume convencional');
   });
 });

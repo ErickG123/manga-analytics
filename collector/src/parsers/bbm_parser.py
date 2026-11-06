@@ -71,6 +71,77 @@ def _publisher_from_text(text_content: str) -> str:
     return publisher_name
 
 
+def _publication_heading(table) -> tuple[str, Any] | tuple[str, None]:
+    heading_pattern = re.compile(
+        r"\d+\s*(?:a|o|ª|º|°)?\s*(?:publicacao|edicao)", re.IGNORECASE
+    )
+    for candidate in table.find_all_previous(["p", "h2", "h3", "h4"]):
+        label = candidate.get_text(" ", strip=True)
+        if heading_pattern.fullmatch(_normalize_label(label)):
+            return label, candidate
+    return "Edição Brasileira", None
+
+
+def _publication_metadata(
+    title: str, heading: str, heading_node, table
+) -> dict[str, Any]:
+    context: list[str] = [title, heading]
+    format_details = None
+    if heading_node is not None:
+        for node in heading_node.find_all_next(["p", "h2", "h3", "h4", "table"]):
+            if node is table:
+                break
+            node_text = node.get_text(" ", strip=True)
+            if re.fullmatch(
+                r"\d+\s*(?:a|o|ª|º|°)?\s*(?:publicacao|edicao)",
+                _normalize_label(node_text),
+            ):
+                break
+            context.append(node_text)
+            for strong in node.find_all("strong"):
+                if (
+                    _normalize_label(strong.get_text(" ", strip=True)).rstrip(":")
+                    == "formato"
+                ):
+                    format_details = (
+                        strong.parent.get_text(" ", strip=True)
+                        .split(":", 1)[-1]
+                        .strip()
+                    )
+    for anchor in table.find_all("a", href=True):
+        context.append(str(anchor.get("href", "")))
+
+    source = " ".join(context)
+    normalized = _normalize_label(source).replace("–", "-").replace("—", "-")
+    match = re.search(r"\b([23])\s*(?:-\s*em\s*-?\s*|em\s*|[-x×])1\b", normalized)
+    if match:
+        number = int(match.group(1))
+        label = f"{number} em 1"
+        format_type = "two_in_one" if number == 2 else "three_in_one"
+    elif re.search(r"\bomnibus\b", normalized):
+        label, format_type, number = "Omnibus", "omnibus", None
+    elif re.search(r"\bedicao\s+definitiva\b|\bdefinitiva\b", normalized):
+        label, format_type, number = "Edição definitiva", "definitive", None
+    elif re.search(r"\bdeluxe\b", normalized):
+        label, format_type, number = "Deluxe", "deluxe", None
+    elif re.search(r"\bregular\b|\bedicao\s+padrao\b", normalized):
+        label, format_type, number = "Regular", "regular", 1
+    else:
+        label, format_type, number = None, "unknown", None
+
+    evidence = " | ".join(part for part in (heading, label, format_details) if part)
+    return {
+        "source_key": re.sub(r"[^a-z0-9]+", "_", _normalize_label(heading)).strip("_")
+        or "default",
+        "name": heading,
+        "format_type": format_type,
+        "format_label": label,
+        "format_details": format_details,
+        "volumes_per_book": number,
+        "format_evidence": evidence or None,
+    }
+
+
 def parse_bbm_publisher(html: str) -> str:
     """Extract only the Brazilian publisher, without parsing volume tables."""
     text_content = BeautifulSoup(html, "html.parser").get_text("\n", strip=True)
@@ -108,17 +179,18 @@ def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
         ):
             covers.append(src)
 
-    # 3. Tabela de Volumes
+    # 3. Tabelas de volumes, agrupadas pela publicação indicada antes de cada tabela.
     volumes: list[dict[str, Any]] = []
+    publications: list[dict[str, Any]] = []
     volume_table_found = False
     volume_rows_skipped = 0
     duplicate_volume_rows = 0
     conflicting_volume_numbers: set[int] = set()
-    row_headers: list[str] = []
     for table in soup.find_all("table"):
         rows = table.find_all("tr")
         header_row_index = None
         column_indexes: dict[str, int] = {}
+        row_headers: list[str] = []
         for row_index, row in enumerate(rows):
             cells = row.find_all(["th", "td"], recursive=False)
             labels = [
@@ -162,11 +234,19 @@ def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
         if header_row_index is None:
             continue
         volume_table_found = True
+        publication_name, publication_heading_node = _publication_heading(table)
+        publication = _publication_metadata(
+            title, publication_name, publication_heading_node, table
+        )
+        table_volumes: list[dict[str, Any]] = []
+        table_skipped = 0
+        table_duplicates = 0
+        table_conflicts: set[int] = set()
 
         for row in rows[header_row_index + 1 :]:
             cells = row.find_all(["th", "td"], recursive=False)
             if len(cells) <= max(column_indexes.values()):
-                volume_rows_skipped += 1
+                table_skipped += 1
                 continue
 
             num_text = cells[column_indexes["volume"]].get_text(" ", strip=True)
@@ -176,27 +256,22 @@ def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
             elif re.search(r"unico|one[- ]?shot", _normalize_label(num_text)):
                 vol_num = 1
             else:
-                volume_rows_skipped += 1
+                table_skipped += 1
                 continue
 
-            # Data BR
             br_date_text = cells[column_indexes["date"]].get_text(" ", strip=True)
             date_val, precision, year, month, day = parse_brazilian_date(br_date_text)
-
-            # Preço BR
             price_text = (
                 cells[column_indexes["price"]].get_text(" ", strip=True)
                 if "price" in column_indexes
                 else ""
             )
             price_decimal = parse_price_brl(price_text)
-
             cover_url = (
                 covers[vol_num - 1]
                 if len(covers) >= vol_num
                 else (covers[0] if covers else None)
             )
-
             status = _release_status(year, month, day)
 
             variant_labels: list[str] = []
@@ -235,15 +310,14 @@ def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
                 "variants": [],
             }
             prior_volume = next(
-                (item for item in volumes if item["number"] == vol_num), None
+                (item for item in table_volumes if item["number"] == vol_num), None
             )
             if prior_volume is not None:
-                duplicate_volume_rows += 1
+                table_duplicates += 1
                 if variant_labels:
                     variant = {**volume, "name": " / ".join(variant_labels)}
-                    variant.pop("number")
-                    variant.pop("title")
-                    variant.pop("variants")
+                    for key in ("number", "title", "variants"):
+                        variant.pop(key)
                     existing_variant = next(
                         (
                             item
@@ -255,16 +329,24 @@ def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
                     if existing_variant is None:
                         prior_volume["variants"].append(variant)
                     elif existing_variant != variant:
-                        conflicting_volume_numbers.add(vol_num)
+                        table_conflicts.add(vol_num)
                 elif {
                     key: value
                     for key, value in prior_volume.items()
                     if key != "variants"
                 } != {key: value for key, value in volume.items() if key != "variants"}:
-                    conflicting_volume_numbers.add(vol_num)
+                    table_conflicts.add(vol_num)
                 continue
-            volumes.append(volume)
-        break
+            table_volumes.append(volume)
+
+        volume_rows_skipped += table_skipped
+        duplicate_volume_rows += table_duplicates
+        conflicting_volume_numbers.update(table_conflicts)
+        publication["volumes"] = table_volumes
+        if table_volumes:
+            publications.append(publication)
+            if not volumes:
+                volumes = table_volumes
 
     return {
         "title": title,
@@ -273,6 +355,7 @@ def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
         "publisher": publisher_name,
         "cover_url": covers[0] if covers else None,
         "volumes": volumes,
+        "publications": publications,
         "volume_table_found": volume_table_found,
         "volume_rows_skipped": volume_rows_skipped,
         "duplicate_volume_rows": duplicate_volume_rows,

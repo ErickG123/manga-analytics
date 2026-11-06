@@ -8,102 +8,168 @@
   </div>
   <h1 class="page-title">Calendário<span class="heading-dot">.</span></h1>
   <p class="muted">
-    Lançamentos por data de publicação da edição brasileira, respeitando a precisão informada pela
-    fonte.
+    Lançamentos pela data brasileira informada na tabela de volumes da fonte; a data de cadastro da
+    página no BBM não é usada como data de lançamento.
   </p>
 
   <div class="calendar-controls" aria-label="Filtros do calendário">
-    <label
-      >Editora<select
+    <label for="calendar-publisher">
+      Editora
+      <p-select
+        fluid
         [ngModel]="selectedPublisher()"
         (ngModelChange)="selectedPublisher.set($event); updateFilter()"
-      >
-        <option value="">Todas</option>
-        @for (pub of publishers(); track pub.slug) {
-          <option [value]="pub.slug">{{ pub.name }}</option>
-        }
-      </select></label
-    >
-    <label
-      >Obra<input
+        [options]="publishers()"
+        optionLabel="name"
+        optionValue="slug"
+        [showClear]="true"
+        placeholder="Todas"
+        inputId="calendar-publisher"
+      />
+    </label>
+    <label for="calendar-work">
+      Obra
+      <input
+        id="calendar-work"
+        pInputText
         type="search"
         placeholder="Nome ou slug"
         [ngModel]="selectedWork()"
         (ngModelChange)="selectedWork.set($event); updateFilter()"
-    /></label>
-    <label
-      >Ano<input
-        type="number"
-        min="1900"
-        [ngModel]="selectedYear()"
-        (ngModelChange)="selectedYear.set(+$event); updateFilter()"
-    /></label>
-    <label
-      >Mês<select
+      />
+    </label>
+    @if (viewMode() === 'timeline') {
+      <label for="timeline-year-from">
+        Ano inicial
+        <p-inputnumber
+          [ngModel]="timelineYearFrom()"
+          (ngModelChange)="
+            timelineYearFrom.set($event ?? timelineYearFrom()); updateTimelineYearRange()
+          "
+          [min]="1900"
+          [max]="2100"
+          [useGrouping]="false"
+          inputId="timeline-year-from"
+        />
+      </label>
+      <label for="timeline-year-to">
+        Ano final
+        <p-inputnumber
+          [ngModel]="timelineYearTo()"
+          (ngModelChange)="
+            timelineYearTo.set($event ?? timelineYearTo()); updateTimelineYearRange()
+          "
+          [min]="1900"
+          [max]="2100"
+          [useGrouping]="false"
+          inputId="timeline-year-to"
+        />
+      </label>
+    } @else {
+      <label for="calendar-year">
+        Ano
+        <p-inputnumber
+          [ngModel]="selectedYear()"
+          (ngModelChange)="selectedYear.set($event ?? selectedYear()); updateFilter()"
+          [min]="1900"
+          [max]="2100"
+          [useGrouping]="false"
+          inputId="calendar-year"
+        />
+      </label>
+    }
+    <label for="calendar-month">
+      Mês
+      <p-select
+        fluid
         [ngModel]="selectedMonth()"
-        (ngModelChange)="selectedMonth.set(+$event); updateFilter()"
-      >
-        <option [ngValue]="0">Todos no ano</option>
-        @for (month of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]; track month) {
-          <option [ngValue]="month">{{ month }}</option>
-        }
-      </select></label
-    >
-    <label
-      >Situação<select
+        (ngModelChange)="selectedMonth.set($event); updateFilter()"
+        [options]="monthOptions"
+        optionLabel="label"
+        optionValue="value"
+        inputId="calendar-month"
+      />
+    </label>
+    <label for="calendar-status">
+      Situação
+      <p-select
+        fluid
         [ngModel]="selectedStatus()"
         (ngModelChange)="selectedStatus.set($event); updateFilter()"
-      >
-        <option value="">Todas</option>
-        <option value="released">Lançado</option>
-        <option value="planned">Previsto</option>
-        <option value="unknown">Desconhecido</option>
-      </select></label
-    >
-    <label
-      >Preço<select [ngModel]="hasPrice()" (ngModelChange)="hasPrice.set($event); updateFilter()">
-        <option value="">Qualquer</option>
-        <option value="true">Com preço</option>
-        <option value="false">Sem preço</option>
-      </select></label
-    >
-    <label
-      >De<input
+        [options]="statusOptions"
+        optionLabel="label"
+        optionValue="value"
+        inputId="calendar-status"
+      />
+    </label>
+    <label for="calendar-price">
+      Preço
+      <p-select
+        fluid
+        [ngModel]="hasPrice()"
+        (ngModelChange)="hasPrice.set($event); updateFilter()"
+        [options]="priceOptions"
+        optionLabel="label"
+        optionValue="value"
+        inputId="calendar-price"
+      />
+    </label>
+    <label for="calendar-date-from">
+      De
+      <input
+        id="calendar-date-from"
+        pInputText
         type="date"
         [ngModel]="dateFrom()"
         (ngModelChange)="dateFrom.set($event); updateFilter()"
         aria-label="Data inicial"
-    /></label>
-    <label
-      >Até<input
+      />
+    </label>
+    <label for="calendar-date-to">
+      Até
+      <input
+        id="calendar-date-to"
+        pInputText
         type="date"
         [ngModel]="dateTo()"
         (ngModelChange)="dateTo.set($event); updateFilter()"
         aria-label="Data final"
-    /></label>
+      />
+    </label>
   </div>
 
   <div class="calendar-summary">
     <strong>{{ total() }} lançamentos no período</strong>
-    <div class="month-navigation">
-      <button type="button" aria-label="Mês anterior" (click)="previousMonth()">Anterior</button>
-      <span>{{ selectedYear() }} · {{ selectedMonth() || 'Todos os meses' }}</span>
-      <button type="button" aria-label="Próximo mês" (click)="nextMonth()">Próximo</button>
-    </div>
+    @if (viewMode() === 'month' && selectedMonth()) {
+      <div class="month-navigation" aria-label="Navegação entre meses">
+        <button type="button" aria-label="Mês anterior" (click)="previousMonth()">
+          Mês anterior
+        </button>
+        <span>{{ selectedYear() }} · {{ selectedMonth() || 'Todos os meses' }}</span>
+        <button type="button" aria-label="Próximo mês" (click)="nextMonth()">Próximo mês</button>
+      </div>
+    }
     <div class="view-switch" role="group" aria-label="Modo de visualização">
       <button
         type="button"
         [attr.aria-pressed]="viewMode() === 'list'"
-        (click)="viewMode.set('list')"
+        (click)="setViewMode('list')"
       >
         Lista
       </button>
       <button
         type="button"
         [attr.aria-pressed]="viewMode() === 'month'"
-        (click)="viewMode.set('month')"
+        (click)="setViewMode('month')"
       >
         Por mês
+      </button>
+      <button
+        type="button"
+        [attr.aria-pressed]="viewMode() === 'timeline'"
+        (click)="openTimeline()"
+      >
+        Linha do tempo
       </button>
     </div>
   </div>
@@ -150,6 +216,131 @@
         </ul>
       </section>
     }
+  } @else if (viewMode() === 'timeline') {
+    <div class="release-timeline" aria-label="Linha do tempo de lançamentos">
+      @for (yearGroup of timelineYears(); track yearGroup.year) {
+        <section class="timeline-year">
+          <header class="timeline-year-heading">
+            <span class="timeline-year-marker" aria-hidden="true">{{ yearGroup.year }}</span>
+            <div>
+              <p class="eyebrow">ANO DE LANÇAMENTO</p>
+              <h2>{{ yearGroup.year }}</h2>
+              <p class="muted">{{ yearGroup.count }} lançamentos nos filtros selecionados</p>
+            </div>
+          </header>
+
+          @for (group of yearGroup.months; track group.key) {
+            <section class="timeline-month">
+              <button
+                class="timeline-month-toggle"
+                type="button"
+                [attr.aria-expanded]="expandedTimelineMonthKey() === group.key"
+                [attr.aria-controls]="'timeline-month-' + group.key"
+                (click)="toggleTimelineMonth(group)"
+              >
+                <span class="timeline-month-marker" aria-hidden="true"></span>
+                <span class="timeline-month-title">{{ group.label }}</span>
+                <span class="muted">{{ group.count }} lançamentos</span>
+                <span class="timeline-month-chevron" aria-hidden="true">
+                  <svg
+                    viewBox="0 0 16 16"
+                    [class.timeline-month-chevron-expanded]="
+                      expandedTimelineMonthKey() === group.key
+                    "
+                  >
+                    <path d="m5 3 5 5-5 5" />
+                  </svg>
+                </span>
+              </button>
+
+              @if (expandedTimelineMonthKey() === group.key) {
+                <div class="timeline-month-content" [id]="'timeline-month-' + group.key">
+                  @if (timelineMonthLoading()) {
+                    <p class="timeline-empty muted" role="status">Carregando este mês…</p>
+                  } @else if (timelineMonthError()) {
+                    <p class="timeline-empty error-message" role="alert">
+                      {{ timelineMonthError() }}
+                    </p>
+                  } @else if (timelineMonthEntries().length) {
+                    <div class="timeline-cards">
+                      @for (entry of timelineMonthEntries(); track entry.id) {
+                        <article class="timeline-card">
+                          <a
+                            class="timeline-cover"
+                            [routerLink]="['/catalogo', entry.slug]"
+                            [attr.aria-label]="'Ver detalhes de ' + entry.title"
+                          >
+                            @if (entry.coverUrl) {
+                              <img
+                                [src]="entry.coverUrl"
+                                [alt]="'Capa de ' + entry.title"
+                                loading="lazy"
+                              />
+                            } @else {
+                              <span class="timeline-cover-placeholder">Capa indisponível</span>
+                            }
+                          </a>
+                          <div class="timeline-card-content">
+                            <div class="timeline-card-meta">
+                              <span>{{ entry.publisher }}</span>
+                              <span>{{ entry.date || group.label }}</span>
+                            </div>
+                            <h4>
+                              <a [routerLink]="['/catalogo', entry.slug]">{{ entry.title }}</a>
+                            </h4>
+                            <div class="timeline-card-footer">
+                              <span>Volume #{{ entry.number }}</span>
+                              <span>{{ releaseStatusLabel(entry) }}</span>
+                            </div>
+                            <p class="timeline-price">
+                              {{ releasePrecision(entry) }}
+                              @if (entry.price !== null) {
+                                ·
+                                {{ entry.price | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR' }}
+                              }
+                            </p>
+                          </div>
+                        </article>
+                      }
+                    </div>
+                    @if (timelineMonthTotalPages() > 1) {
+                      <nav
+                        class="timeline-pagination"
+                        aria-label="Paginação dos lançamentos do mês"
+                      >
+                        <button
+                          type="button"
+                          [disabled]="timelineMonthPage() === 1"
+                          (click)="setTimelineMonthPage(timelineMonthPage() - 1)"
+                        >
+                          Anterior
+                        </button>
+                        <span aria-live="polite">
+                          Página {{ timelineMonthPage() }} de {{ timelineMonthTotalPages() }}
+                        </span>
+                        <button
+                          type="button"
+                          [disabled]="timelineMonthPage() === timelineMonthTotalPages()"
+                          (click)="setTimelineMonthPage(timelineMonthPage() + 1)"
+                        >
+                          Próxima
+                        </button>
+                      </nav>
+                    }
+                  } @else {
+                    <p class="timeline-empty muted">Nenhum lançamento disponível neste grupo.</p>
+                  }
+                </div>
+              }
+            </section>
+          } @empty {
+            <p class="empty-cell">Nenhum mês com lançamento neste ano.</p>
+          }
+        </section>
+      } @empty {
+        <p class="empty-cell">Nenhum lançamento encontrado para os filtros selecionados.</p>
+      }
+    </div>
   } @else {
     <div class="table-scroll">
       <table class="data-table">
@@ -202,14 +393,15 @@
       </table>
     </div>
   }
-  @if (totalPages() > 1) {
+  @if (totalPages() > 1 && viewMode() !== 'timeline') {
     <nav class="pagination" aria-label="Paginação do calendário">
-      <button type="button" [disabled]="page() === 1" (click)="setPage(page() - 1)">Anterior</button
+      <button type="button" [disabled]="page() === 1" (click)="setPage(page() - 1)">
+        Página anterior</button
       ><span aria-live="polite"
         >{{ firstResult() }}–{{ lastResult() }} de {{ total() }} · Página {{ page() }} de
         {{ totalPages() }}</span
       ><button type="button" [disabled]="page() === totalPages()" (click)="setPage(page() + 1)">
-        Próxima
+        Próxima página
       </button>
     </nav>
   }

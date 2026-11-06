@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { SelectQueryBuilder } from 'typeorm';
+import type { ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 import { AppDataSource } from '../../config/data-source.js';
 import { Edition, Volume } from '../../entities/index.js';
 import type { AnalyticsFilters } from './models/analytics.model.js';
@@ -8,7 +8,10 @@ const currentPrice = `(SELECT p.amount::numeric FROM volume_prices p WHERE p."vo
 const hasCurrentPrice = `EXISTS (SELECT 1 FROM volume_prices p WHERE p."volumeId" = v.id)`;
 const priceBandOrder = ['0–19,99', '20–39,99', '40–59,99', '60–99,99', '100+'];
 
-function applyFilters(qb: SelectQueryBuilder<Volume>, filters: AnalyticsFilters): void {
+function applyFilters<T extends ObjectLiteral>(
+  qb: SelectQueryBuilder<T>,
+  filters: AnalyticsFilters,
+): void {
   if (filters.publisherId)
     qb.andWhere('e."publisherId" = :publisherId', { publisherId: filters.publisherId });
   if (filters.category) qb.andWhere('m.category = :category', { category: filters.category });
@@ -19,7 +22,20 @@ function applyFilters(qb: SelectQueryBuilder<Volume>, filters: AnalyticsFilters)
   if (filters.hasPrice === 'true') qb.andWhere(hasCurrentPrice);
   if (filters.hasPrice === 'false') qb.andWhere(`NOT ${hasCurrentPrice}`);
   if (filters.manga) qb.andWhere('m.title ILIKE :manga', { manga: `%${filters.manga}%` });
+  if (filters.formatType)
+    qb.andWhere('e."formatType" = :formatType', { formatType: filters.formatType });
 }
+
+const formatLabels: Record<string, string> = {
+  regular: 'Regular',
+  two_in_one: '2 em 1',
+  three_in_one: '3 em 1',
+  omnibus: 'Omnibus',
+  definitive: 'Edição definitiva',
+  deluxe: 'Deluxe',
+  other: 'Outro formato',
+  unknown: 'Volume convencional',
+};
 
 function round(value: number | null, digits = 2): number | null {
   if (!Number.isFinite(value)) return null;
@@ -36,6 +52,47 @@ function baseQuery() {
 }
 
 export async function registerAnalyticsRoutes(app: FastifyInstance) {
+  app.get('/api/v1/analytics/releases/year-range', async (req, reply) => {
+    const filters = { ...(req.query as AnalyticsFilters) };
+    delete filters.yearFrom;
+    delete filters.yearTo;
+    const qb = baseQuery()
+      .select('MIN(v."releaseYear")', 'minYear')
+      .addSelect('MAX(v."releaseYear")', 'maxYear')
+      .where('v."releaseYear" IS NOT NULL');
+    applyFilters(qb, filters);
+    const row = await qb.getRawOne<{ minYear: string | null; maxYear: string | null }>();
+    return reply.send({
+      minYear: row?.minYear === null || row?.minYear === undefined ? null : Number(row.minYear),
+      maxYear: row?.maxYear === null || row?.maxYear === undefined ? null : Number(row.maxYear),
+    });
+  });
+
+  app.get('/api/v1/analytics/editions/by-format', async (req, reply) => {
+    const qb = AppDataSource.getRepository(Edition)
+      .createQueryBuilder('e')
+      .innerJoin('e.manga', 'm')
+      .innerJoin('e.publisher', 'pub')
+      .leftJoin('e.volumes', 'v')
+      .select('e."formatType"', 'formatType')
+      .addSelect('COUNT(DISTINCT e.id)', 'editionsCount')
+      .addSelect('COUNT(DISTINCT m.id)', 'mangaCount')
+      .addSelect('COUNT(DISTINCT v.id)', 'volumesCount')
+      .groupBy('e."formatType"')
+      .orderBy('e."formatType"', 'ASC');
+    applyFilters(qb, req.query as AnalyticsFilters);
+    const rows = await qb.getRawMany<Record<string, string>>();
+    return reply.send(
+      rows.map((row) => ({
+        formatType: row.formatType,
+        label: formatLabels[row.formatType] ?? formatLabels['unknown'],
+        editionsCount: Number(row.editionsCount),
+        mangaCount: Number(row.mangaCount),
+        volumesCount: Number(row.volumesCount),
+      })),
+    );
+  });
+
   app.get('/api/v1/analytics/overview', async (req: FastifyRequest, reply: FastifyReply) => {
     const filters = req.query as AnalyticsFilters;
     const qb = baseQuery()

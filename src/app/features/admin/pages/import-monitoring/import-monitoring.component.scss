@@ -2,6 +2,36 @@
   display: block;
 }
 
+:host ::ng-deep .collector-confirmation .p-dialog {
+  width: min(32rem, calc(100vw - 2rem));
+  border: 1px solid #3b3c47;
+  border-radius: 0.9rem;
+  background: #1b1c25;
+  color: #eaeaf0;
+}
+
+:host ::ng-deep .collector-confirmation .p-dialog-header,
+:host ::ng-deep .collector-confirmation .p-dialog-content,
+:host ::ng-deep .collector-confirmation .p-dialog-footer {
+  background: #1b1c25;
+  color: inherit;
+}
+
+:host ::ng-deep .collector-confirmation .p-confirmdialog-message {
+  line-height: 1.6;
+}
+
+:host ::ng-deep .collector-confirmation .p-dialog-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+:host ::ng-deep .collector-confirmation .p-confirmdialog-icon {
+  color: #ef737b;
+}
+
 .header-actions {
   display: flex;
   gap: 1rem;
@@ -71,6 +101,148 @@
     background: rgba(229, 9, 20, 0.2);
     color: #ff4d4d;
     border-color: #e50914;
+  }
+}
+
+.collector-console {
+  margin-bottom: 1.5rem;
+  border-color: rgba(229, 9, 20, 0.35);
+}
+
+.collector-console-heading,
+.collector-progress-summary,
+.collector-review-item > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.collector-console-heading h3 {
+  margin: 0.35rem 0;
+}
+
+.collector-console-heading p {
+  margin-bottom: 0;
+}
+
+.collector-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.collector-progress-summary {
+  justify-content: flex-start;
+  margin: 1.5rem 0 0.75rem;
+  color: #d8d8de;
+}
+
+.collector-percent {
+  color: #fff;
+  font-size: 1.65rem;
+  min-width: 4rem;
+}
+
+.collector-progress-note {
+  color: #9b9ba4;
+  font-size: 0.82rem;
+  margin: 0.55rem 0 1.25rem;
+}
+
+.collector-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 1rem;
+  margin: 1.25rem 0;
+
+  > div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 0;
+    padding: 0.9rem;
+    border: 1px solid #303039;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  strong {
+    color: #f4f4f6;
+  }
+
+  span:last-child {
+    color: #a5a5ae;
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
+  }
+}
+
+.collector-review-list {
+  border-top: 1px solid #303039;
+  padding-top: 0.8rem;
+
+  h4 {
+    margin: 0.4rem 0 0.8rem;
+  }
+}
+
+.collector-review-item {
+  padding: 0.8rem 0;
+  border-top: 1px solid #25252d;
+
+  a {
+    color: #ff6b73;
+  }
+
+  p {
+    color: #d2d2d8;
+    margin: 0.45rem 0;
+  }
+
+  small {
+    color: #93939d;
+  }
+}
+
+.collector-output {
+  margin-top: 1rem;
+  color: #bcbcc4;
+
+  summary {
+    cursor: pointer;
+  }
+
+  pre {
+    max-height: 16rem;
+    overflow: auto;
+    padding: 0.8rem;
+    border-radius: 6px;
+    background: #101015;
+    color: #cbcbc9;
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+  }
+}
+
+:host ::ng-deep p-progressbar .p-progressbar {
+  height: 0.75rem;
+  background: #303039;
+}
+
+:host ::ng-deep p-progressbar .p-progressbar-value {
+  background: linear-gradient(90deg, #b20710, #ff5963);
+}
+
+@media (max-width: 760px) {
+  .collector-console-heading,
+  .collector-progress-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .collector-metrics {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -15,6 +15,8 @@ O coletor opera sob o princípio de não sobrecarga da infraestrutura da BBM:
 - **Transparência:** O coletor utiliza User-Agent explícito:
   `MangaAtlasCollector/1.1 (+https://github.com/erick-alves/manga-analytics; research@manga-atlas.local)`
 
+O operador do Mangá Atlas autorizou explicitamente a consulta remota ao BBM mesmo que o `robots.txt` não liste essa rota. Essa decisão não altera as proteções para 429/403 nem autoriza contornar recusas HTTP; pausas, retries, bloqueio e User-Agent continuam obrigatórios.
+
 ---
 
 ## 2. Parâmetros de Configuração (`collector/src/config.py`)

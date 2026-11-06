@@ -45,6 +45,21 @@
         }
         @if (item.editions?.length) {
           <p><strong>Situação:</strong> {{ item.editions?.[0]?.status }}</p>
+          <div class="publication-list" aria-label="Publicações e formatos">
+            <strong>Publicações cadastradas</strong>
+            @for (edition of item.editions; track edition.id) {
+              <div class="publication-item" [title]="edition.formatEvidence || ''">
+                <span>{{ edition.name }} · {{ edition.publisher }}</span>
+                <strong>{{ formatTypeLabel(edition.formatType) }}</strong>
+                @if (edition.volumesPerBook && edition.volumesPerBook > 1) {
+                  <span> reúne {{ edition.volumesPerBook }} volumes em cada livro</span>
+                }
+                @if (edition.formatDetails) {
+                  <small>Formato físico: {{ edition.formatDetails }}</small>
+                }
+              </div>
+            }
+          </div>
         }
         <p><strong>Volumes cadastrados:</strong> {{ item.volumesCount ?? item.volumes.length }}</p>
         @if (lastRelease(); as last) {
@@ -131,6 +146,11 @@
               <td>
                 #{{ v.number
                 }}{{ v.title && v.title !== 'Volume ' + v.number ? ' · ' + v.title : '' }}
+                @if (v.editionName) {
+                  <small class="volume-edition-label">
+                    {{ v.editionName }} · {{ formatTypeLabel(v.editionFormatType || 'unknown') }}
+                  </small>
+                }
                 @if (v.variants?.length) {
                   <ul class="volume-variants" aria-label="Edições especiais e variantes">
                     @for (variant of v.variants; track variant.id) {

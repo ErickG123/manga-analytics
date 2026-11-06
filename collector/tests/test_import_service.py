@@ -43,8 +43,10 @@ class FixtureClient:
             }
         ]
         self.fetch_calls = []
+        self.discovery_kwargs = None
 
-    def iter_catalog_metadata(self, limit=None):
+    def iter_catalog_metadata(self, limit=None, **kwargs):
+        self.discovery_kwargs = kwargs
         yield from self.metadata[:limit]
 
     def fetch_page(self, page_id):
@@ -90,6 +92,60 @@ def test_persist_mode_times_repository_call_without_network():
     assert result.created == 1
     assert len(repository.saved) == 1
     assert len(repository.saved[0].volumes) == 3
+
+
+def test_successful_backfill_resolves_a_previously_queued_failure():
+    class FailureAwareRepository(RecordingRepository):
+        def __init__(self):
+            super().__init__()
+            self.resolved_failures = []
+
+        def resolve_collector_failure(self, external_id):
+            self.resolved_failures.append(external_id)
+
+    metadata = [
+        {
+            "id": 123,
+            "title": {"rendered": "Recovered work"},
+            "link": "https://blogbbm.com/obra/123",
+            "modified": "2026-11-04T12:00:00",
+            "content": {"rendered": FIXTURE.read_text(encoding="utf-8")},
+        }
+    ]
+    repository = FailureAwareRepository()
+    client = FixtureClient(metadata)
+    result = ImportService(client=client, repository=repository).run_import(
+        limit=100, run_type="backfill", force_refresh=True, force_reparse=True
+    )
+
+    assert result.created == 1
+    assert repository.resolved_failures == ["123"]
+    assert client.fetch_calls == []
+    assert client.discovery_kwargs == {
+        "start_page": 1,
+        "start_offset": 0,
+        "per_page": 100,
+        "max_pages": 1,
+        "orderby": "modified",
+        "order": "desc",
+        "include_content": True,
+        "respect_run_limits": False,
+    }
+
+
+def test_backfill_falls_back_to_detail_when_list_entry_has_no_html():
+    client = FixtureClient()
+    service = ImportService(client=client, repository=RecordingRepository())
+
+    result = service.run_import(
+        limit=1,
+        run_type="backfill",
+        force_refresh=True,
+        force_reparse=True,
+    )
+
+    assert result.created == 1
+    assert client.fetch_calls == [123]
 
 
 def test_repository_upserts_work_volumes_and_price_observations_idempotently(
@@ -281,6 +337,7 @@ def test_sync_uses_bounded_modified_window_and_imports_only_changed_fichas():
         "order": "asc",
         "modified_after": after,
         "modified_before": before,
+        "include_content": True,
     }
     assert client.fetch_calls == [456]
     assert result.unchanged == 1

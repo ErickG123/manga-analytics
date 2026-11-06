@@ -51,7 +51,9 @@ export class MangaService {
     const [items, total] = await this.repo.findMany(params);
 
     const data: MangaListItemDto[] = items.map((m) => {
-      const allVolumes = m.editions.flatMap((e) => e.volumes);
+      const editionVolumes = m.editions.flatMap((edition) =>
+        edition.volumes.map((volume) => ({ volume, edition })),
+      );
       const pubName = m.editions[0]?.publisher?.name || 'Não informada';
       return {
         id: m.id,
@@ -65,10 +67,14 @@ export class MangaService {
         accent: m.accent,
         initials: m.initials,
         coverUrl: m.coverUrl,
-        volumesCount: allVolumes.length,
+        volumesCount: editionVolumes.length,
         updatedAt: m.updatedAt,
-        volumes: allVolumes.map((v) => ({
+        volumes: editionVolumes.map(({ volume: v, edition: e }) => ({
           id: v.id,
+          editionId: e.id,
+          editionName: e.name,
+          editionFormat: e.format,
+          editionFormatType: e.formatType,
           number: v.number,
           title: v.title,
           isbn13: v.isbn13,
@@ -100,7 +106,13 @@ export class MangaService {
     if (!manga) return null;
     const source = await this.repo.findSourceReference(manga.id);
 
-    const allVolumes = manga.editions.flatMap((e) => e.volumes).sort((a, b) => a.number - b.number);
+    const editionVolumes = manga.editions
+      .flatMap((edition) => edition.volumes.map((volume) => ({ volume, edition })))
+      .sort(
+        (left, right) =>
+          left.volume.number - right.volume.number ||
+          left.edition.name.localeCompare(right.edition.name, 'pt-BR'),
+      );
     const pubName = manga.editions[0]?.publisher?.name || 'Não informada';
 
     return {
@@ -115,7 +127,7 @@ export class MangaService {
       accent: manga.accent,
       initials: manga.initials,
       coverUrl: manga.coverUrl,
-      volumesCount: allVolumes.length,
+      volumesCount: editionVolumes.length,
       updatedAt: manga.updatedAt,
       sourceUrl: source?.externalUrl ?? null,
       sourceUpdatedAt: source?.createdAt ?? null,
@@ -123,11 +135,19 @@ export class MangaService {
         id: e.id,
         name: e.name,
         format: e.format,
+        formatType: e.formatType,
+        formatDetails: e.formatDetails ?? null,
+        volumesPerBook: e.volumesPerBook ?? null,
+        formatEvidence: e.formatEvidence ?? null,
         status: e.status,
         publisher: e.publisher.name,
       })),
-      volumes: allVolumes.map((v) => ({
+      volumes: editionVolumes.map(({ volume: v, edition: e }) => ({
         id: v.id,
+        editionId: e.id,
+        editionName: e.name,
+        editionFormat: e.format,
+        editionFormatType: e.formatType,
         number: v.number,
         title: v.title,
         isbn13: v.isbn13,

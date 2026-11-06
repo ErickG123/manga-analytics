@@ -3,7 +3,8 @@
   <h1 class="page-title">Análises de preços &amp; mercado<span class="heading-dot">.</span></h1>
   <p class="muted">
     Compare o catálogo, acompanhe lançamentos e explore preços registrados. Os filtros são aplicados
-    aos indicadores, gráficos e relatórios.
+    aos indicadores, gráficos e relatórios. Os anos disponíveis usam a data de lançamento do volume
+    informada pela fonte, não a data em que a página foi cadastrada no BBM.
   </p>
 
   <div class="filter-heading">
@@ -20,7 +21,7 @@
     <label for="year-from"
       >Ano de lançamento desde<p-inputnumber
         [ngModel]="yearFrom()"
-        (ngModelChange)="yearFrom.set($event ?? 1900); filtersChanged()"
+        (ngModelChange)="yearFrom.set($event ?? 1900); yearRangeChanged()"
         [min]="1900"
         [max]="2100"
         [useGrouping]="false"
@@ -29,7 +30,7 @@
     <label for="year-to"
       >Ano até<p-inputnumber
         [ngModel]="yearTo()"
-        (ngModelChange)="yearTo.set($event ?? 1900); filtersChanged()"
+        (ngModelChange)="yearTo.set($event ?? 1900); yearRangeChanged()"
         [min]="1900"
         [max]="2100"
         [useGrouping]="false"
@@ -37,6 +38,7 @@
     /></label>
     <label for="publisher-filter"
       >Editora<p-select
+        fluid
         [ngModel]="publisherId()"
         (ngModelChange)="publisherId.set($event); filtersChanged()"
         [options]="publishers()"
@@ -49,6 +51,7 @@
     @if (categories().length > 1) {
       <label for="category-filter"
         >Categoria<p-select
+          fluid
           [ngModel]="category()"
           (ngModelChange)="category.set($event); filtersChanged()"
           [options]="categories()"
@@ -59,6 +62,7 @@
     }
     <label for="status-filter"
       >Situação do volume<p-select
+        fluid
         [ngModel]="status()"
         (ngModelChange)="status.set($event); filtersChanged()"
         [options]="statusOptions"
@@ -68,12 +72,23 @@
     /></label>
     <label for="price-filter"
       >Disponibilidade de preço<p-select
+        fluid
         [ngModel]="hasPrice()"
         (ngModelChange)="hasPrice.set($event); filtersChanged()"
         [options]="priceOptions"
         optionLabel="label"
         optionValue="value"
         inputId="price-filter"
+    /></label>
+    <label for="format-filter"
+      >Formato da publicação<p-select
+        fluid
+        [ngModel]="formatType()"
+        (ngModelChange)="formatType.set($event); filtersChanged()"
+        [options]="formatOptions"
+        optionLabel="label"
+        optionValue="value"
+        inputId="format-filter"
     /></label>
     <label for="manga-filter"
       >Obra<input
@@ -126,6 +141,22 @@
         overview().totalPublishers | number: '1.0-0' : 'pt-BR'
       }}</strong
       ><small>Editoras representadas nos resultados.</small>
+    </article>
+    <article class="metric">
+      <span>PUBLICAÇÕES COM FORMATO IDENTIFICADO</span
+      ><strong class="metric-primary">{{
+        formatSummary().identified | number: '1.0-0' : 'pt-BR'
+      }}</strong
+      ><small>{{
+        formatSummary().coverage === null
+          ? 'Sem publicações no filtro'
+          : (formatSummary().coverage | percent: '1.0-1' : 'pt-BR') + ' dos registros'
+      }}</small>
+    </article>
+    <article class="metric">
+      <span>PUBLICAÇÕES SEM FORMATO IDENTIFICADO</span
+      ><strong>{{ formatSummary().unknown | number: '1.0-0' : 'pt-BR' }}</strong
+      ><small>Sem indicação de formato especial na fonte; exibidas como volume convencional.</small>
     </article>
     <article class="metric">
       <span>PREÇO MÉDIO DE CAPA</span
@@ -214,42 +245,62 @@
               tooltipPosition="top"
             />
           </div>
-          <p-button
-            [icon]="
-              fullscreenChart() === 'publisher-price'
-                ? 'pi pi-window-minimize'
-                : 'pi pi-window-maximize'
-            "
-            [text]="true"
-            [rounded]="true"
-            [ariaLabel]="
-              fullscreenChart() === 'publisher-price'
-                ? 'Sair da tela cheia'
-                : 'Exibir em tela cheia'
-            "
-            (onClick)="toggleFullscreen('publisher-price')"
-          />
+          <div class="chart-actions">
+            <p-button
+              icon="pi pi-download"
+              [text]="true"
+              [rounded]="true"
+              [disabled]="!hasPublisherPrices()"
+              ariaLabel="Exportar gráfico como imagem"
+              pTooltip="Baixar gráfico em PNG"
+              tooltipPosition="top"
+              (onClick)="exportChart('publisher-price')"
+            />
+            <p-button
+              [icon]="
+                fullscreenChart() === 'publisher-price'
+                  ? 'pi pi-window-minimize'
+                  : 'pi pi-window-maximize'
+              "
+              [text]="true"
+              [rounded]="true"
+              [ariaLabel]="
+                fullscreenChart() === 'publisher-price'
+                  ? 'Sair da tela cheia'
+                  : 'Exibir em tela cheia'
+              "
+              (onClick)="toggleFullscreen('publisher-price')"
+            />
+          </div>
         </div>
         <p class="muted">
           Média por volume com preço conhecido; compare também o tamanho da amostra.
         </p>
         @if (hasPublisherPrices()) {
-          <div
-            #publisherChart
-            class="chart"
-            role="img"
-            aria-label="Preço médio de capa por editora"
-          ></div>
-          <div class="sample-list" aria-label="Volumes precificados por editora">
-            @for (publisher of topPublishers(); track publisher.id) {
-              @if (publisher.averagePrice !== null) {
-                <span
-                  >{{ publisher.name }}: n={{
-                    publisher.sampleSize | number: '1.0-0' : 'pt-BR'
-                  }}</span
-                >
+          <div class="chart-with-data">
+            <div
+              #publisherChart
+              class="chart"
+              role="img"
+              aria-label="Preço médio de capa por editora"
+            ></div>
+            <aside class="chart-data-panel" aria-label="Resumo de preços por editora">
+              <h4>Amostra por editora</h4>
+              @for (publisher of topPublishers(); track publisher.id) {
+                @if (publisher.averagePrice !== null) {
+                  <div class="chart-data-row">
+                    <span class="chart-data-label">{{ publisher.name }}</span>
+                    <strong>{{
+                      publisher.averagePrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
+                    }}</strong>
+                    <small>
+                      {{ publisher.sampleSize | number: '1.0-0' : 'pt-BR' }} com preço ·
+                      {{ publisher.volumesCount | number: '1.0-0' : 'pt-BR' }} volumes
+                    </small>
+                  </div>
+                }
               }
-            }
+            </aside>
           </div>
         } @else {
           <p class="empty-state">Sem volumes com preço nesse filtro.</p>
@@ -268,21 +319,33 @@
               tooltipPosition="top"
             />
           </div>
-          <p-button
-            [icon]="
-              fullscreenChart() === 'publisher-coverage'
-                ? 'pi pi-window-minimize'
-                : 'pi pi-window-maximize'
-            "
-            [text]="true"
-            [rounded]="true"
-            [ariaLabel]="
-              fullscreenChart() === 'publisher-coverage'
-                ? 'Sair da tela cheia'
-                : 'Exibir em tela cheia'
-            "
-            (onClick)="toggleFullscreen('publisher-coverage')"
-          />
+          <div class="chart-actions">
+            <p-button
+              icon="pi pi-download"
+              [text]="true"
+              [rounded]="true"
+              [disabled]="!hasPublisherPrices()"
+              ariaLabel="Exportar gráfico como imagem"
+              pTooltip="Baixar gráfico em PNG"
+              tooltipPosition="top"
+              (onClick)="exportChart('publisher-coverage')"
+            />
+            <p-button
+              [icon]="
+                fullscreenChart() === 'publisher-coverage'
+                  ? 'pi pi-window-minimize'
+                  : 'pi pi-window-maximize'
+              "
+              [text]="true"
+              [rounded]="true"
+              [ariaLabel]="
+                fullscreenChart() === 'publisher-coverage'
+                  ? 'Sair da tela cheia'
+                  : 'Exibir em tela cheia'
+              "
+              (onClick)="toggleFullscreen('publisher-coverage')"
+            />
+          </div>
         </div>
         <p class="muted">Percentual de volumes da editora com preço registrado.</p>
         @if (hasPublisherPrices()) {
@@ -370,17 +433,29 @@
               tooltipPosition="top"
             />
           </div>
-          <p-button
-            [icon]="
-              fullscreenChart() === 'releases-month'
-                ? 'pi pi-window-minimize'
-                : 'pi pi-window-maximize'
-            "
-            [text]="true"
-            [rounded]="true"
-            ariaLabel="Alternar tela cheia"
-            (onClick)="toggleFullscreen('releases-month')"
-          />
+          <div class="chart-actions">
+            <p-button
+              icon="pi pi-download"
+              [text]="true"
+              [rounded]="true"
+              [disabled]="!hasMonthlyReleases()"
+              ariaLabel="Exportar gráfico como imagem"
+              pTooltip="Baixar gráfico em PNG"
+              tooltipPosition="top"
+              (onClick)="exportChart('releases-month')"
+            />
+            <p-button
+              [icon]="
+                fullscreenChart() === 'releases-month'
+                  ? 'pi pi-window-minimize'
+                  : 'pi pi-window-maximize'
+              "
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Alternar tela cheia"
+              (onClick)="toggleFullscreen('releases-month')"
+            />
+          </div>
         </div>
         <p class="muted">
           Volumes com ano e mês de lançamento informados; a situação pode estar desconhecida.
@@ -407,17 +482,29 @@
               tooltipPosition="top"
             />
           </div>
-          <p-button
-            [icon]="
-              fullscreenChart() === 'publisher-timeline'
-                ? 'pi pi-window-minimize'
-                : 'pi pi-window-maximize'
-            "
-            [text]="true"
-            [rounded]="true"
-            ariaLabel="Alternar tela cheia"
-            (onClick)="toggleFullscreen('publisher-timeline')"
-          />
+          <div class="chart-actions">
+            <p-button
+              icon="pi pi-download"
+              [text]="true"
+              [rounded]="true"
+              [disabled]="publisherReleaseMonths().length === 0"
+              ariaLabel="Exportar gráfico como imagem"
+              pTooltip="Baixar gráfico em PNG"
+              tooltipPosition="top"
+              (onClick)="exportChart('publisher-timeline')"
+            />
+            <p-button
+              [icon]="
+                fullscreenChart() === 'publisher-timeline'
+                  ? 'pi pi-window-minimize'
+                  : 'pi pi-window-maximize'
+              "
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Alternar tela cheia"
+              (onClick)="toggleFullscreen('publisher-timeline')"
+            />
+          </div>
         </div>
         <p class="muted">
           Exibe até 7 editoras; as demais ficam agrupadas. Datas sem mês não são distribuídas.
@@ -448,23 +535,130 @@
               tooltipPosition="top"
             />
           </div>
-          <p-button
-            [icon]="
-              fullscreenChart() === 'releases-year'
-                ? 'pi pi-window-minimize'
-                : 'pi pi-window-maximize'
-            "
-            [text]="true"
-            [rounded]="true"
-            ariaLabel="Alternar tela cheia"
-            (onClick)="toggleFullscreen('releases-year')"
-          />
+          <div class="chart-actions">
+            <p-button
+              icon="pi pi-download"
+              [text]="true"
+              [rounded]="true"
+              [disabled]="releasesByYear().length === 0"
+              ariaLabel="Exportar gráfico como imagem"
+              pTooltip="Baixar gráfico em PNG"
+              tooltipPosition="top"
+              (onClick)="exportChart('releases-year')"
+            />
+            <p-button
+              [icon]="
+                fullscreenChart() === 'releases-year'
+                  ? 'pi pi-window-minimize'
+                  : 'pi pi-window-maximize'
+              "
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Alternar tela cheia"
+              (onClick)="toggleFullscreen('releases-year')"
+            />
+          </div>
         </div>
         <p class="muted">Volumes com ano de lançamento informado e situação selecionada.</p>
         @if (releasesByYear().length) {
           <div #yearChart class="chart" role="img" aria-label="Lançamentos por ano"></div>
         } @else {
           <p class="empty-state">Não há anos de lançamento nesse filtro.</p>
+        }
+      </article>
+    </div>
+  </section>
+
+  <section class="analytics-section" aria-labelledby="format-section-title">
+    <div class="section-heading">
+      <div>
+        <div class="eyebrow">FORMATO EDITORIAL</div>
+        <h2 id="format-section-title">Publicações por formato</h2>
+      </div>
+      <p class="muted">
+        Cada registro representa uma publicação da obra por editora; volumes compilados ficam
+        separados.
+      </p>
+    </div>
+    <div class="chart-grid">
+      <article
+        class="panel panel-wide"
+        [class.chart-fullscreen]="fullscreenChart() === 'edition-formats'"
+      >
+        <div class="panel-heading">
+          <div>
+            <h3>Publicações por formato editorial</h3>
+            <p-button
+              icon="pi pi-info-circle"
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Sobre este gráfico"
+              pTooltip="Publicações, obras e volumes são contagens diferentes: uma obra pode ter mais de uma publicação, e cada publicação pode reunir vários volumes. Quando não há evidência de formato especial, o registro é agrupado como volume convencional."
+              tooltipPosition="top"
+            />
+          </div>
+          <div class="chart-actions">
+            <p-button
+              icon="pi pi-download"
+              [text]="true"
+              [rounded]="true"
+              [disabled]="editionsByFormat().length < 2"
+              ariaLabel="Exportar gráfico como imagem"
+              pTooltip="Baixar gráfico em PNG (disponível quando há mais de um formato)"
+              tooltipPosition="top"
+              (onClick)="exportChart('edition-formats')"
+            />
+            <p-button
+              [icon]="
+                fullscreenChart() === 'edition-formats'
+                  ? 'pi pi-window-minimize'
+                  : 'pi pi-window-maximize'
+              "
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Alternar tela cheia"
+              (onClick)="toggleFullscreen('edition-formats')"
+            />
+          </div>
+        </div>
+        <p class="muted">
+          Classificação explícita em rótulos e links da fonte; casos sem evidência permanecem
+          desconhecidos.
+        </p>
+        @if (editionsByFormat().length) {
+          <div class="chart-with-data">
+            @if (editionsByFormat().length > 1) {
+              <div
+                #formatChart
+                class="chart"
+                role="img"
+                aria-label="Publicações do catálogo agrupadas por formato editorial"
+              ></div>
+            } @else {
+              <div class="format-single-summary">
+                <span>Único formato no filtro</span>
+                <strong>{{
+                  editionsByFormat()[0].editionsCount | number: '1.0-0' : 'pt-BR'
+                }}</strong>
+                <span>publicações</span>
+              </div>
+            }
+            <aside class="chart-data-panel" aria-label="Obras, publicações e volumes por formato">
+              <h4>Detalhamento por formato</h4>
+              @for (item of editionsByFormat(); track item.formatType) {
+                <div class="chart-data-row">
+                  <span class="chart-data-label">{{ item.label }}</span>
+                  <strong>{{ item.editionsCount | number: '1.0-0' : 'pt-BR' }} publicações</strong>
+                  <small>
+                    {{ item.mangaCount | number: '1.0-0' : 'pt-BR' }} obras ·
+                    {{ item.volumesCount | number: '1.0-0' : 'pt-BR' }} volumes
+                  </small>
+                </div>
+              }
+            </aside>
+          </div>
+        } @else {
+          <p class="empty-state">Não há publicações para esses filtros.</p>
         }
       </article>
     </div>
@@ -495,36 +689,65 @@
               tooltipPosition="top"
             />
           </div>
-          <p-button
-            [icon]="
-              fullscreenChart() === 'prices-year'
-                ? 'pi pi-window-minimize'
-                : 'pi pi-window-maximize'
-            "
-            [text]="true"
-            [rounded]="true"
-            ariaLabel="Alternar tela cheia"
-            (onClick)="toggleFullscreen('prices-year')"
-          />
+          <div class="chart-actions">
+            <p-button
+              icon="pi pi-download"
+              [text]="true"
+              [rounded]="true"
+              [disabled]="!hasYearlyPrices()"
+              ariaLabel="Exportar gráfico como imagem"
+              pTooltip="Baixar gráfico em PNG"
+              tooltipPosition="top"
+              (onClick)="exportChart('prices-year')"
+            />
+            <p-button
+              [icon]="
+                fullscreenChart() === 'prices-year'
+                  ? 'pi pi-window-minimize'
+                  : 'pi pi-window-maximize'
+              "
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Alternar tela cheia"
+              (onClick)="toggleFullscreen('prices-year')"
+            />
+          </div>
         </div>
         <p class="muted">
           Compara o preço de capa informado pelo site para volumes lançados em cada ano. Não é uma
           série de reajustes de um mesmo volume nem correção pela inflação.
         </p>
         @if (hasYearlyPrices()) {
-          <div
-            #priceYearChart
-            class="chart chart-tall"
-            role="img"
-            aria-label="Preço médio e mediano por ano de lançamento"
-          ></div>
-          <div class="sample-list" aria-label="Tamanho das amostras anuais">
-            @for (item of pricesByYear(); track item.year) {
-              <span
-                >{{ item.year }}: n={{ item.sampleSize | number: '1.0-0' : 'pt-BR' }} de
-                {{ item.volumesCount | number: '1.0-0' : 'pt-BR' }} volumes</span
-              >
-            }
+          <div class="chart-with-data chart-with-data-tall">
+            <div
+              #priceYearChart
+              class="chart chart-tall"
+              role="img"
+              aria-label="Preço médio e mediano por ano de lançamento"
+            ></div>
+            <aside class="chart-data-panel" aria-label="Amostra de volumes por ano">
+              <h4>Amostra por ano</h4>
+              @for (item of pricesByYear(); track item.year) {
+                <div class="chart-data-row">
+                  <span class="chart-data-label">{{ item.year }}</span>
+                  @if (item.sampleSize > 0) {
+                    <strong>{{
+                      item.averagePrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
+                    }}</strong>
+                    <small>
+                      {{ item.sampleSize | number: '1.0-0' : 'pt-BR' }} com preço ·
+                      {{ item.volumesCount | number: '1.0-0' : 'pt-BR' }} volumes
+                    </small>
+                  } @else {
+                    <strong>Sem preço conhecido</strong>
+                    <small
+                      >{{ item.volumesCount | number: '1.0-0' : 'pt-BR' }} volumes no
+                      catálogo</small
+                    >
+                  }
+                </div>
+              }
+            </aside>
           </div>
         } @else {
           <p class="empty-state">Não há amostra de preços por ano nesse filtro.</p>
@@ -543,17 +766,29 @@
               tooltipPosition="top"
             />
           </div>
-          <p-button
-            [icon]="
-              fullscreenChart() === 'price-bands'
-                ? 'pi pi-window-minimize'
-                : 'pi pi-window-maximize'
-            "
-            [text]="true"
-            [rounded]="true"
-            ariaLabel="Alternar tela cheia"
-            (onClick)="toggleFullscreen('price-bands')"
-          />
+          <div class="chart-actions">
+            <p-button
+              icon="pi pi-download"
+              [text]="true"
+              [rounded]="true"
+              [disabled]="priceBands().length === 0"
+              ariaLabel="Exportar gráfico como imagem"
+              pTooltip="Baixar gráfico em PNG"
+              tooltipPosition="top"
+              (onClick)="exportChart('price-bands')"
+            />
+            <p-button
+              [icon]="
+                fullscreenChart() === 'price-bands'
+                  ? 'pi pi-window-minimize'
+                  : 'pi pi-window-maximize'
+              "
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Alternar tela cheia"
+              (onClick)="toggleFullscreen('price-bands')"
+            />
+          </div>
         </div>
         <p class="muted">Considera o último preço registrado para cada volume.</p>
         @if (priceBands().length) {

@@ -8,6 +8,7 @@ import time
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -24,6 +25,7 @@ from collector.src.models.entities import (
     ImportResult,
     MangaCollected,
     PersistenceResult,
+    PublicationCollected,
     VolumeCollected,
     VolumeVariantCollected,
 )
@@ -35,6 +37,35 @@ from collector.src.parsers.bbm_parser import parse_bbm_page
 from collector.src.repositories.collector_repository import CollectorRepository
 
 logger = logging.getLogger("manga_atlas_collector")
+
+
+def _collect_volume(volume: dict[str, Any]) -> VolumeCollected:
+    return VolumeCollected(
+        number=volume["number"],
+        title=volume["title"],
+        release_date=volume["release_date"],
+        release_date_precision=volume["release_date_precision"],
+        release_year=volume.get("release_year"),
+        release_month=volume.get("release_month"),
+        release_day=volume.get("release_day"),
+        release_status=volume["release_status"],
+        price_amount=volume["price_amount"],
+        cover_url=volume["cover_url"],
+        variants=[
+            VolumeVariantCollected(
+                name=variant["name"],
+                release_date=variant["release_date"],
+                release_date_precision=variant["release_date_precision"],
+                release_year=variant.get("release_year"),
+                release_month=variant.get("release_month"),
+                release_day=variant.get("release_day"),
+                release_status=variant["release_status"],
+                price_amount=variant["price_amount"],
+                cover_url=variant["cover_url"],
+            )
+            for variant in volume.get("variants", [])
+        ],
+    )
 
 
 class ImportService:
@@ -164,6 +195,21 @@ class ImportService:
                     order="asc",
                     modified_after=modified_after,
                     modified_before=modified_before,
+                    include_content=True,
+                )
+            )
+        elif run_type == "backfill":
+            metadata = list(
+                self.client.iter_catalog_metadata(
+                    limit=limit,
+                    start_page=start_page,
+                    start_offset=start_offset,
+                    per_page=min(100, limit or 100),
+                    max_pages=1,
+                    orderby=orderby,
+                    order=order,
+                    include_content=True,
+                    respect_run_limits=False,
                 )
             )
         elif (
@@ -299,7 +345,18 @@ class ImportService:
             request_metrics_before = getattr(self.client, "metrics_snapshot", dict)()
             fetch_started = time.perf_counter()
             try:
-                page_data = self.client.fetch_page(page_id)
+                embedded_content = meta.get("content", {})
+                embedded_html = (
+                    embedded_content.get("rendered", "")
+                    if isinstance(embedded_content, dict)
+                    else ""
+                )
+                if isinstance(embedded_html, str) and embedded_html.strip():
+                    page_data = meta
+                    html_content = embedded_html
+                else:
+                    page_data = self.client.fetch_page(page_id)
+                    html_content = page_data.get("content", {}).get("rendered", "")
                 raw_title = (
                     page_data.get("title", {}).get("rendered")
                     or raw_title
@@ -310,7 +367,6 @@ class ImportService:
                     result.timings_ms.get("fetch_total_duration_ms", 0) + fetch_total_ms
                 )
                 request_metrics_after = getattr(self.client, "metrics_snapshot", dict)()
-                html_content = page_data.get("content", {}).get("rendered", "")
                 content_hash = hashlib.sha256(html_content.encode("utf-8")).hexdigest()
 
                 if (
@@ -389,35 +445,28 @@ class ImportService:
                     source_content_hash=content_hash,
                     sync_complete=parsed.get("volume_parse_complete", False),
                     volumes=[
-                        VolumeCollected(
-                            number=volume["number"],
-                            title=volume["title"],
-                            release_date=volume["release_date"],
-                            release_date_precision=volume["release_date_precision"],
-                            release_year=volume.get("release_year"),
-                            release_month=volume.get("release_month"),
-                            release_day=volume.get("release_day"),
-                            release_status=volume["release_status"],
-                            price_amount=volume["price_amount"],
-                            cover_url=volume["cover_url"],
-                            variants=[
-                                VolumeVariantCollected(
-                                    name=variant["name"],
-                                    release_date=variant["release_date"],
-                                    release_date_precision=variant[
-                                        "release_date_precision"
-                                    ],
-                                    release_year=variant.get("release_year"),
-                                    release_month=variant.get("release_month"),
-                                    release_day=variant.get("release_day"),
-                                    release_status=variant["release_status"],
-                                    price_amount=variant["price_amount"],
-                                    cover_url=variant["cover_url"],
-                                )
-                                for variant in volume.get("variants", [])
+                        _collect_volume(volume)
+                        for publication in parsed.get("publications", [])
+                        for volume in publication["volumes"]
+                    ]
+                    or [
+                        _collect_volume(volume) for volume in parsed.get("volumes", [])
+                    ],
+                    publications=[
+                        PublicationCollected(
+                            source_key=publication["source_key"],
+                            name=publication["name"],
+                            format_type=publication["format_type"],
+                            format_label=publication.get("format_label"),
+                            format_details=publication.get("format_details"),
+                            volumes_per_book=publication.get("volumes_per_book"),
+                            format_evidence=publication.get("format_evidence"),
+                            volumes=[
+                                _collect_volume(volume)
+                                for volume in publication["volumes"]
                             ],
                         )
-                        for volume in parsed.get("volumes", [])
+                        for publication in parsed.get("publications", [])
                     ],
                 )
                 validation_started = time.perf_counter()
@@ -510,12 +559,11 @@ class ImportService:
                     else:
                         status = "updated" if prior else "created"
                     setattr(result, status, getattr(result, status) + 1)
-                    if retry_failed:
-                        resolve_failure = getattr(
-                            self.repository, "resolve_collector_failure", None
-                        )
-                        if resolve_failure:
-                            resolve_failure(str(page_id))
+                    resolve_failure = getattr(
+                        self.repository, "resolve_collector_failure", None
+                    )
+                    if resolve_failure:
+                        resolve_failure(str(page_id))
                     logger.info(
                         "[%s] %s: %s volumes, %s com preço",
                         status.upper(),

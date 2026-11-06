@@ -236,8 +236,8 @@ def main():
             parser.error("--limit deve ser maior que zero")
         sys.exit(_run_sync(args, parser))
     elif args.command == "backfill":
-        if args.batch_size < 1:
-            parser.error("--batch-size deve ser maior que zero")
+        if args.batch_size < 1 or args.batch_size > 100:
+            parser.error("--batch-size deve estar entre 1 e 100")
         service = ImportService()
         repo = service.repository
         source_state = repo.get_source_state("bbm")
@@ -326,6 +326,11 @@ def main():
                     or result.termination_status == "failed"
                 ):
                     repo.set_checkpoint_status("failed")
+                elif result.skipped > 0:
+                    # O limite de duração pode encerrar o lote no meio da página.
+                    # O callback já confirmou cada ficha concluída; preserve esse
+                    # offset para retomar sem pular o restante da página.
+                    repo.set_checkpoint_status("pending")
                 else:
                     repo.save_checkpoint(
                         page=last_page + 1,

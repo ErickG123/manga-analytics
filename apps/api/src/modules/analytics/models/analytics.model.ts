@@ -36,4 +36,18 @@ export interface AnalyticsFilters {
   status?: string;
   hasPrice?: string;
   manga?: string;
+  formatType?: string;
+}
+
+export interface EditionFormatAggregateDto {
+  formatType: string;
+  label: string;
+  editionsCount: number;
+  mangaCount: number;
+  volumesCount: number;
+}
+
+export interface ReleaseYearRangeDto {
+  minYear: number | null;
+  maxYear: number | null;
 }

@@ -17,6 +17,7 @@ export interface CalendarReleaseDto {
 export interface CalendarFilterParams {
   year?: string;
   month?: string;
+  monthUnknown?: string;
   publisher?: string;
   status?: string;
   manga?: string;
@@ -25,4 +26,10 @@ export interface CalendarFilterParams {
   hasPrice?: string;
   page?: string;
   limit?: string;
+}
+
+export interface CalendarReleaseMonthSummary {
+  year: number;
+  month: number | null;
+  count: number;
 }

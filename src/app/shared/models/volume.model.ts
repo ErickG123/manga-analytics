@@ -2,6 +2,10 @@ import type { ReleaseDate } from './release-date.model';
 
 export interface Volume {
   id: string;
+  editionId?: string;
+  editionName?: string;
+  editionFormat?: string;
+  editionFormatType?: string;
   number: number;
   title?: string;
   release: ReleaseDate;

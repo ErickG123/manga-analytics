@@ -111,6 +111,27 @@ export class DetailPageComponent {
     return `${status} · ${precision}`;
   }
 
+  formatTypeLabel(formatType: string): string {
+    switch (formatType) {
+      case 'regular':
+        return 'Regular';
+      case 'two_in_one':
+        return '2 em 1';
+      case 'three_in_one':
+        return '3 em 1';
+      case 'omnibus':
+        return 'Omnibus';
+      case 'definitive':
+        return 'Edição definitiva';
+      case 'deluxe':
+        return 'Deluxe';
+      case 'other':
+        return 'Outro formato';
+      default:
+        return 'Volume convencional';
+    }
+  }
+
   private releaseSortKey(volume: Volume): number {
     const value = volume.release.value;
     if (!value) return Number.MAX_SAFE_INTEGER;

@@ -165,3 +165,37 @@ def test_parser_attaches_special_editions_as_variants_of_the_same_volume():
     assert volume_27["variants"][0]["name"] == "Blind Pack"
     assert volume_27["variants"][0]["release_date"] == "18/01/2025"
     assert volume_27["variants"][0]["price_amount"] == Decimal("49.90")
+
+
+def test_parser_separates_publications_and_detects_two_in_one_from_source_link():
+    html = """
+    <div class="entry-content">
+      <p><strong>2&ordf; Publica&ccedil;&atilde;o</strong></p>
+      <p><strong>Formato</strong>: 13,7 x 20 cm</p>
+      <p><strong>Preço</strong>: R$ 49,90</p>
+      <table><tr><td>Vol.</td><td>Japão</td><td>Brasil</td><td>Preço</td><td>Compre em</td></tr>
+        <tr><td># 01</td><td>2012</td><td>05/05/2024</td><td>R$ 49,90</td>
+          <td><a href="https://loja.test/mob-psycho-100-2-em-1-vol-1">Loja</a></td></tr>
+      </table>
+      <p><strong>1&ordf; Publica&ccedil;&atilde;o</strong></p>
+      <p><strong>Formato</strong>: 13,7 x 20 cm</p>
+      <table><tr><td>Vol.</td><td>Japão</td><td>Brasil</td><td>Preço</td><td>Compre em</td></tr>
+        <tr><td># 01</td><td>2012</td><td>11/2017</td><td>R$ 19,90</td><td><a href="https://loja.test/mob-psycho-vol-1">Loja</a></td></tr>
+      </table>
+    </div>
+    """
+
+    parsed = parse_bbm_page(html, "Mob Psycho 100")
+
+    assert parsed["volume_parse_complete"] is True
+    assert len(parsed["publications"]) == 2
+    two_in_one, regular_publication = parsed["publications"]
+    assert two_in_one["name"] == "2ª Publicação"
+    assert two_in_one["format_type"] == "two_in_one"
+    assert two_in_one["format_label"] == "2 em 1"
+    assert two_in_one["volumes_per_book"] == 2
+    assert two_in_one["format_details"] == "13,7 x 20 cm"
+    assert two_in_one["volumes"][0]["price_amount"] == Decimal("49.90")
+    assert regular_publication["name"] == "1ª Publicação"
+    assert regular_publication["format_type"] == "unknown"
+    assert regular_publication["volumes"][0]["price_amount"] == Decimal("19.90")

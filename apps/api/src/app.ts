@@ -14,6 +14,7 @@ import { registerCalendarRoutes } from './modules/calendar/calendar.routes.js';
 import { registerAnalyticsRoutes } from './modules/analytics/analytics.routes.js';
 import { registerReportsRoutes } from './modules/reports/reports.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
+import { collectorRunner } from './modules/admin/collector-runner.service.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -42,6 +43,7 @@ export async function buildApp() {
 
   // Rotas Administrativas Protegidas
   await app.register(adminRoutes, { prefix: '/api/admin' });
+  app.addHook('onClose', async () => collectorRunner.pauseAndWait());
 
   return app;
 }

@@ -94,6 +94,22 @@ describe('AnalyticsService', () => {
     await expect(promise).resolves.toHaveLength(1);
   });
 
+  it('busca a faixa de anos de lançamento sem limitá-la pelos anos selecionados', async () => {
+    const promise = service.getReleaseYearRange({
+      yearFrom: 2024,
+      yearTo: 2026,
+      publisherId: 'pub-1',
+    });
+    const req = httpTesting.expectOne(
+      (request) => request.url === `${environment.apiUrl}/analytics/releases/year-range`,
+    );
+    expect(req.request.params.get('publisherId')).toBe('pub-1');
+    expect(req.request.params.has('yearFrom')).toBe(false);
+    expect(req.request.params.has('yearTo')).toBe(false);
+    req.flush({ minYear: 1997, maxYear: 2026 });
+    await expect(promise).resolves.toEqual({ minYear: 1997, maxYear: 2026 });
+  });
+
   it('busca médias e medianas de preço agrupadas pelo ano de lançamento', async () => {
     const promise = service.getPricesByYear({ yearFrom: 2022, yearTo: 2026 });
     const req = httpTesting.expectOne(
@@ -106,6 +122,25 @@ describe('AnalyticsService', () => {
       { year: 2024, averagePrice: 42.5, medianPrice: 39.9, sampleSize: 20, volumesCount: 23 },
     ]);
     await expect(promise).resolves.toMatchObject([{ medianPrice: 39.9, sampleSize: 20 }]);
+  });
+
+  it('busca publicações agrupadas por formato e propaga o filtro selecionado', async () => {
+    const promise = service.getEditionsByFormat({ formatType: 'two_in_one' });
+    const req = httpTesting.expectOne(
+      (request) =>
+        request.url === `${environment.apiUrl}/analytics/editions/by-format` &&
+        request.params.get('formatType') === 'two_in_one',
+    );
+    req.flush([
+      {
+        formatType: 'two_in_one',
+        label: '2 em 1',
+        editionsCount: 3,
+        mangaCount: 2,
+        volumesCount: 20,
+      },
+    ]);
+    await expect(promise).resolves.toMatchObject([{ editionsCount: 3, volumesCount: 20 }]);
   });
 
   it('propaga erro de consulta para que a tela não apresente falha como zero', async () => {

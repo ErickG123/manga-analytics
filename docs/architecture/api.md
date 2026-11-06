@@ -1,43 +1,51 @@
-# Arquitetura da API Fastify — Mangá Atlas
+# API Fastify — Mangá Atlas
 
-A API Fastify do **Mangá Atlas** adota uma **arquitetura modular orientada a domínios de negócio**, garantindo baixo acoplamento, alta coesão e testabilidade independente.
+A API HTTP vive em `apps/api/`, usa Fastify 5, TypeORM e PostgreSQL e é consumida pela aplicação Angular. Rotas são agrupadas por domínio. A inicialização aplica as migrations e registra entidades, plugins de CORS, validação e documentação.
 
----
-
-## 1. Estrutura de Camadas
+## Estrutura
 
 ```text
 apps/api/src/
-├── app.ts                  # Registro de plugins e módulos
-├── server.ts               # Ponto de entrada e inicialização HTTP
-├── config/                 # Conexão e configuração TypeORM
-├── entities/               # Entidades relacionais TypeORM
-├── plugins/                # Plugins globais (CORS, Swagger, Sensible)
-└── modules/                # Módulos por Domínio
-    ├── health/             # Healthcheck
-    ├── manga/              # Catálogo de mangás, busca e detalhes
-    ├── publisher/          # Listagem de editoras
-    ├── volume/             # Consulta individual de volumes
-    ├── calendar/           # Cronograma de lançamentos
-    ├── analytics/          # Agregações de mercado e preços médios
-    └── reports/            # Relatórios tabulares e exportação CSV
+├── app.ts                 # Montagem da aplicação e rotas
+├── server.ts              # Servidor HTTP
+├── config/                # DataSource TypeORM
+├── entities/              # Entidades PostgreSQL
+├── migrations/            # Evolução versionada do schema
+├── plugins/               # Plugins Fastify
+└── modules/
+    ├── manga/              # Busca, catálogo e detalhe
+    ├── publisher/          # Editoras
+    ├── volume/             # Volumes e variantes
+    ├── calendar/           # Agenda de lançamentos
+    ├── analytics/          # KPIs e dados agrupados para gráficos
+    ├── reports/             # Relatórios e exportação CSV
+    └── admin/               # Operações administrativas do Collector
 ```
 
----
+Cada módulo mantém rotas, serviços e `models/*.model.ts` quando esses arquivos se aplicam. Os contratos HTTP são tipados em models. A API filtra os volumes por edição; por isso um volume pode identificar a publicação, seu nome e tipo de formato sem fundir republicações da mesma obra.
 
-## 2. Responsabilidades no Módulo
+## Endpoints de domínio
 
-Cada módulo é organizado em responsabilidades estritas:
+Prefixo versionado: `/api/v1`.
 
-1. **Routes (`*.routes.ts`):** declara endpoints HTTP, parâmetros e delega para o Controller.
-2. **Controller (`*.controller.ts`):** recebe requisições Fastify, valida parâmetros e traduz para DTOs.
-3. **Service (`*.service.ts`):** orquestra regras de negócio e transforma entidades em DTOs. Não depende de objetos do Fastify.
-4. **Repository (`*.repository.ts`):** encapsula consultas ao banco de dados via TypeORM.
-5. **Models (`models/*.model.ts`):** define as interfaces tipadas de entrada e saída.
+- Catálogo/detalhe: `/mangas`, `/mangas/:slug`.
+- Editoras e calendário: `/publishers`, `/calendar`.
+- Analytics: `/analytics/overview`, rotas `/analytics/*/by-*` e `/analytics/editions/by-format`.
+- Exportações: `/reports/releases?format=csv` e `/reports/prices?format=csv`.
+- Saúde e OpenAPI: rotas registradas pelo app e plugins correspondentes.
 
----
+Os filtros de análise e relatórios compartilham ano, editora, categoria, situação, obra e presença de preço conforme o endpoint; `formatType` filtra publicações por taxonomia normalizada. O agregado de formatos informa contagem de publicações, obras e volumes. CSVs de lançamentos/preços incluem publicação e seus metadados de formato.
 
-## 3. Testabilidade
+## Console do Collector
 
-- Testes de integração via `app.inject()` em [`apps/api/src/app.spec.ts`](file:///C:/Users/erick.alves/Documents/GitHub/manga-analytics/apps/api/src/app.spec.ts).
-- Testes unitários de serviços com repositórios mockados em [`apps/api/src/modules/manga/services/manga.service.spec.ts`](file:///C:/Users/erick.alves/Documents/GitHub/manga-analytics/apps/api/src/modules/manga/services/manga.service.spec.ts).
+Rotas administrativas protegidas por token incluem `GET /api/admin/collector/control/status`, `GET /api/admin/collector/events` (SSE), `POST /api/admin/collector/backfill/start` e `POST /api/admin/collector/backfill/pause`. O servidor Fastify inicia apenas o comando fixo do Collector, em lotes de até 100 fichas; a pausa entra em vigor depois do lote e preserva o checkpoint. O stream publica checkpoint, percentual estimado, estado da fonte e falhas/revisões. Configure o executável Python e a raiz do projeto quando a API não for executada na raiz do repositório.
+
+## Persistência e migrations
+
+As entidades estão em `apps/api/src/entities/`. Use migrations em `apps/api/src/migrations/` para mudanças estruturais e registre-as em `config/data-source.ts`. A migration `1793971000000-AddEditionFormatMetadata` adiciona identidade da edição de origem, tipo e evidência editorial, remove a presunção legada de `Tankobon` e permite mais de uma publicação por obra/editora. Veja [formatos de publicação](../data/publication-formats.md).
+
+## Testes
+
+- Integração das rotas: `npm run test:api` (`apps/api/src/app.spec.ts`).
+- O serviço de catálogo possui testes de transformação/DTO em `apps/api/src/modules/manga/services/manga.service.spec.ts`.
+- Validação conjunta com o frontend e build: `npm run check`.

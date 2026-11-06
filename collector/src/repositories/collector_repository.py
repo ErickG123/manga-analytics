@@ -15,6 +15,7 @@ import psycopg
 from collector.src.models.entities import (
     MangaCollected,
     PersistenceResult,
+    PublicationCollected,
     VolumeVariantCollected,
 )
 
@@ -823,6 +824,47 @@ class CollectorRepository:
     def save_manga(
         self, data: MangaCollected, source_id: str = "bbm"
     ) -> PersistenceResult:
+        publications = data.publications or [
+            PublicationCollected(
+                source_key="default", name="Edição Brasileira", volumes=data.volumes
+            )
+        ]
+        outcomes = [
+            self._save_manga_publication(
+                data,
+                source_id,
+                publication,
+                migrate_legacy_default=index == 0,
+            )
+            for index, publication in enumerate(publications)
+        ]
+        status = (
+            "created"
+            if any(outcome.status == "created" for outcome in outcomes)
+            else "updated"
+            if any(outcome.status == "updated" for outcome in outcomes)
+            else "unchanged"
+        )
+        return PersistenceResult(
+            status=status,
+            manga_id=outcomes[0].manga_id,
+            volumes_created=sum(outcome.volumes_created for outcome in outcomes),
+            volumes_updated=sum(outcome.volumes_updated for outcome in outcomes),
+            volumes_unchanged=sum(outcome.volumes_unchanged for outcome in outcomes),
+            price_changes=sum(outcome.price_changes for outcome in outcomes),
+            variants_created=sum(outcome.variants_created for outcome in outcomes),
+            variants_updated=sum(outcome.variants_updated for outcome in outcomes),
+            variants_unchanged=sum(outcome.variants_unchanged for outcome in outcomes),
+        )
+
+    def _save_manga_publication(
+        self,
+        data: MangaCollected,
+        source_id: str,
+        publication: PublicationCollected,
+        *,
+        migrate_legacy_default: bool,
+    ) -> PersistenceResult:
         """Persist domain changes only; returns created, updated or unchanged."""
         manga_slug = slugify(data.title)
         publisher_slug = slugify(data.publisher)
@@ -969,19 +1011,70 @@ class CollectorRepository:
 
             edition_reconciled = False
             publisher_is_known = data.publisher.strip().casefold() != "não informada"
+            publication_key = publication.source_key or "default"
+            edition_name = publication.name or "Edição Brasileira"
+            if (
+                migrate_legacy_default
+                and publication_key != "default"
+                and publisher_is_known
+            ):
+                cursor.execute(
+                    """SELECT e.id FROM editions e
+                       WHERE e."mangaId" = %s AND e."sourceEditionKey" = 'default'
+                       ORDER BY (e."publisherId" = %s) DESC, e."createdAt" LIMIT 1""",
+                    (manga_id, publisher_id),
+                )
+                legacy_edition = cursor.fetchone()
+                if legacy_edition:
+                    legacy_edition_id = legacy_edition[0]
+                    cursor.execute(
+                        """SELECT id FROM editions
+                           WHERE "mangaId" = %s AND "publisherId" = %s
+                             AND "sourceEditionKey" = %s""",
+                        (manga_id, publisher_id, publication_key),
+                    )
+                    existing_publication = cursor.fetchone()
+                    if (
+                        existing_publication
+                        and existing_publication[0] != legacy_edition_id
+                    ):
+                        self._merge_edition(
+                            cursor, existing_publication[0], legacy_edition_id
+                        )
+                    else:
+                        cursor.execute(
+                            """UPDATE editions SET "publisherId" = %s, "sourceEditionKey" = %s,
+                                 name = %s, format = COALESCE(%s, 'Não informado'),
+                                 "formatType" = %s, "formatDetails" = %s,
+                                 "volumesPerBook" = %s, "formatEvidence" = %s,
+                                 "updatedAt" = NOW()
+                               WHERE id = %s""",
+                            (
+                                publisher_id,
+                                publication_key,
+                                edition_name,
+                                publication.format_label,
+                                publication.format_type,
+                                publication.format_details,
+                                publication.volumes_per_book,
+                                publication.format_evidence,
+                                legacy_edition_id,
+                            ),
+                        )
+                    edition_reconciled = True
             cursor.execute(
-                'SELECT e.id FROM editions e WHERE e."mangaId" = %s AND e."publisherId" = %s',
-                (manga_id, publisher_id),
+                'SELECT e.id FROM editions e WHERE e."mangaId" = %s AND e."publisherId" = %s AND e."sourceEditionKey" = %s',
+                (manga_id, publisher_id, publication_key),
             )
             canonical_edition = cursor.fetchone()
             cursor.execute(
                 """
                 SELECT e.id FROM editions e
                 JOIN publishers p ON p.id = e."publisherId"
-                WHERE e."mangaId" = %s AND p.name = 'Não informada'
+                WHERE e."mangaId" = %s AND e."sourceEditionKey" = %s AND p.name = 'Não informada'
                 ORDER BY e."createdAt"
                 """,
-                (manga_id,),
+                (manga_id, publication_key),
             )
             unspecified_editions = [row[0] for row in cursor.fetchall()]
 
@@ -1000,32 +1093,69 @@ class CollectorRepository:
                 edition_reconciled = True
             elif canonical_edition:
                 edition_id = canonical_edition[0]
+            elif unspecified_editions:
+                edition_id = unspecified_editions[0]
             else:
                 cursor.execute(
-                    'SELECT id FROM editions WHERE "mangaId" = %s ORDER BY "createdAt" LIMIT 1',
-                    (manga_id,),
+                    """
+                    INSERT INTO editions (
+                      id, "mangaId", "publisherId", name, format, "sourceEditionKey",
+                      "formatType", "formatDetails", "volumesPerBook", "formatEvidence",
+                      status, "createdAt", "updatedAt"
+                    ) VALUES (
+                      gen_random_uuid(), %s, %s, %s, COALESCE(%s, 'Não informado'), %s,
+                      %s, %s, %s, %s, 'ongoing', NOW(), NOW()
+                    ) RETURNING id
+                    """,
+                    (
+                        manga_id,
+                        publisher_id,
+                        edition_name,
+                        publication.format_label,
+                        publication_key,
+                        publication.format_type,
+                        publication.format_details,
+                        publication.volumes_per_book,
+                        publication.format_evidence,
+                    ),
                 )
-                existing_edition = cursor.fetchone()
-                if existing_edition and not publisher_is_known:
-                    edition_id = existing_edition[0]
-                else:
-                    cursor.execute(
-                        """
-                        INSERT INTO editions (id, "mangaId", "publisherId", name, format, status, "createdAt", "updatedAt")
-                        VALUES (gen_random_uuid(), %s, %s, 'Edição Brasileira', 'Tankobon', 'ongoing', NOW(), NOW())
-                        RETURNING id
-                        """,
-                        (manga_id, publisher_id),
-                    )
-                    edition_id = cursor.fetchone()[0]
+                edition_id = cursor.fetchone()[0]
 
+            cursor.execute(
+                """UPDATE editions SET name = %s, format = COALESCE(%s, 'Não informado'),
+                     "formatType" = %s, "formatDetails" = %s,
+                     "volumesPerBook" = %s, "formatEvidence" = %s, "updatedAt" = NOW()
+                   WHERE id = %s AND (
+                     name IS DISTINCT FROM %s OR format IS DISTINCT FROM COALESCE(%s, 'Não informado') OR
+                     "formatType" IS DISTINCT FROM %s OR "formatDetails" IS DISTINCT FROM %s OR
+                     "volumesPerBook" IS DISTINCT FROM %s OR "formatEvidence" IS DISTINCT FROM %s
+                   ) RETURNING id""",
+                (
+                    edition_name,
+                    publication.format_label,
+                    publication.format_type,
+                    publication.format_details,
+                    publication.volumes_per_book,
+                    publication.format_evidence,
+                    edition_id,
+                    edition_name,
+                    publication.format_label,
+                    publication.format_type,
+                    publication.format_details,
+                    publication.volumes_per_book,
+                    publication.format_evidence,
+                ),
+            )
+            edition_reconciled = edition_reconciled or cursor.fetchone() is not None
+
+            publication_volumes = publication.volumes
             existing_numbers: set[int] = set()
             volume_ids: dict[int, str] = {}
             changed_prices = 0
             variant_counts = {"created": 0, "updated": 0, "unchanged": 0}
             changed_volumes: list[tuple[str, int]] = []
-            if data.volumes:
-                numbers = [volume.number for volume in data.volumes]
+            if publication_volumes:
+                numbers = [volume.number for volume in publication_volumes]
                 cursor.execute(
                     'SELECT number FROM volumes WHERE "editionId" = %s AND number = ANY(%s)',
                     (edition_id, numbers),
@@ -1064,16 +1194,19 @@ class CollectorRepository:
                     (
                         edition_id,
                         numbers,
-                        [volume.title for volume in data.volumes],
-                        [volume.release_date for volume in data.volumes],
-                        [volume.release_date_precision for volume in data.volumes],
-                        [volume.release_status for volume in data.volumes],
-                        [volume.release_year for volume in data.volumes],
-                        [volume.release_month for volume in data.volumes],
-                        [volume.release_day for volume in data.volumes],
-                        [volume.isbn13 for volume in data.volumes],
-                        [volume.page_count for volume in data.volumes],
-                        [volume.cover_url for volume in data.volumes],
+                        [volume.title for volume in publication_volumes],
+                        [volume.release_date for volume in publication_volumes],
+                        [
+                            volume.release_date_precision
+                            for volume in publication_volumes
+                        ],
+                        [volume.release_status for volume in publication_volumes],
+                        [volume.release_year for volume in publication_volumes],
+                        [volume.release_month for volume in publication_volumes],
+                        [volume.release_day for volume in publication_volumes],
+                        [volume.isbn13 for volume in publication_volumes],
+                        [volume.page_count for volume in publication_volumes],
+                        [volume.cover_url for volume in publication_volumes],
                     ),
                 )
                 changed_volumes = cursor.fetchall()
@@ -1088,7 +1221,9 @@ class CollectorRepository:
                 )
 
                 priced = [
-                    volume for volume in data.volumes if volume.price_amount is not None
+                    volume
+                    for volume in publication_volumes
+                    if volume.price_amount is not None
                 ]
                 if priced:
                     ids = [volume_ids[volume.number] for volume in priced]
@@ -1132,7 +1267,7 @@ class CollectorRepository:
                             (source_id, price_ids, amounts),
                         )
 
-                for volume in data.volumes:
+                for volume in publication_volumes:
                     volume_id = volume_ids[volume.number]
                     for variant in volume.variants:
                         variant_status, variant_price_changed = (
@@ -1153,7 +1288,7 @@ class CollectorRepository:
                 or variant_counts["updated"] > 0
             )
             created_volume_count = len(
-                {volume.number for volume in data.volumes} - existing_numbers
+                {volume.number for volume in publication_volumes} - existing_numbers
             )
             updated_volume_count = sum(
                 number in existing_numbers for _volume_id, number in changed_volumes
