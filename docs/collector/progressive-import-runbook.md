@@ -13,5 +13,7 @@
 11. Verifique jobs/métricas JSON e integridade de referências, edição/volume e observações. A persistência é idempotente para replay.
 12. O catálogo é marcado `completed` quando a API sinaliza fim por `X-WP-TotalPages` ou página curta/vazia. Como a ordenação da fonte pode mudar, planeje uma passagem de reconciliação e não interprete um checkpoint completo como garantia matemática contra alterações concorrentes.
 13. Depois do catálogo completo, use `py -m collector.src.cli sync --limit 50` para mudanças incrementais. Repita enquanto a saída indicar `window_complete: false`; a janela é retomada pelo checkpoint. Agende esse comando periodicamente para acompanhar mudanças futuras.
+14. Para corrigir somente editoras das fichas já importadas, valide primeiro com `py -m collector.src.cli repair-publishers --dry-run` e depois execute `py -m collector.src.cli repair-publishers`. Esse fluxo lê o conteúdo nas listagens de até 100 fichas por requisição e atualiza apenas o vínculo da editora.
+15. Para alterações de parser que afetem volumes, preços ou variantes, use uma passagem completa forçada: `py -m collector.src.cli backfill --batch-size 5 --reset-checkpoint --force-reparse`, seguida de `.\backfill-loop.ps1 -ForceReparse`. Ela baixa e reprocessa as fichas completas e pode levar muitas horas.
 
 Ver detalhes técnicos e limitações em [Paginação e checkpoints](pagination-and-checkpoints.md).

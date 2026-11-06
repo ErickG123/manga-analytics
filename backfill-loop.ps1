@@ -1,3 +1,7 @@
+param(
+    [switch]$ForceReparse
+)
+
 $maxLotes = 300
 $esperaSegundos = 300
 
@@ -54,8 +58,17 @@ for ($lote = 1; $lote -le $maxLotes; $lote++) {
     )
 
     try {
-        $backfillOutput = & py -m collector.src.cli backfill `
-            --batch-size 5 --resume --metrics-json $metricsPath 2>&1
+        $collectorArgs = @(
+            "backfill",
+            "--batch-size", "5",
+            "--resume",
+            "--metrics-json", $metricsPath
+        )
+        if ($ForceReparse) {
+            $collectorArgs += "--force-reparse"
+        }
+
+        $backfillOutput = & py -m collector.src.cli @collectorArgs 2>&1
         $backfillExitCode = $LASTEXITCODE
         $backfillOutput | ForEach-Object { Write-Host $_ }
 

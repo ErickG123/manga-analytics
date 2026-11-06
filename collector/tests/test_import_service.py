@@ -320,6 +320,39 @@ def test_force_refresh_downloads_details_but_skips_unchanged_content():
     assert repository.saved == []
 
 
+def test_force_reparse_persists_even_when_source_content_hash_is_unchanged():
+    metadata = [
+        {
+            "id": 123,
+            "title": {"rendered": "One Piece Aventura Escolar"},
+            "modified": "2026-11-04T12:00:00",
+        }
+    ]
+    client = FixtureClient(metadata)
+    html = FIXTURE.read_text(encoding="utf-8")
+    digest = hashlib.sha256(html.encode("utf-8")).hexdigest()
+
+    class ExistingRepository(RecordingRepository):
+        def get_sync_states(self, _external_ids):
+            return {
+                "123": {
+                    "source_modified_at": "2026-11-04T12:00:00",
+                    "content_hash": digest,
+                    "sync_status": "complete",
+                }
+            }
+
+    repository = ExistingRepository()
+    result = ImportService(client=client, repository=repository).run_import(
+        limit=1, force_refresh=True, force_reparse=True
+    )
+
+    assert client.fetch_calls == [123]
+    assert result.processed == 1
+    assert result.unchanged == 0
+    assert len(repository.saved) == 1
+
+
 def test_incomplete_or_conflicting_volume_table_is_not_persisted():
     html = """<table><tr><th>Volume</th><th>Brasil</th><th>Preço</th></tr>
     <tr><td>27</td><td>15/01/2025</td><td>R$ 40,90</td></tr>

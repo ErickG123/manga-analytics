@@ -557,6 +557,141 @@ class CollectorRepository:
 
         cursor.execute("DELETE FROM editions WHERE id = %s", (source_edition_id,))
 
+    def get_last_publisher_repair_window(
+        self, source_id: str = "bbm"
+    ) -> tuple[datetime, datetime] | None:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT "startedAt", "finishedAt" FROM import_jobs
+                WHERE "sourceId" = %s AND "runType" = 'publisher_repair'
+                  AND status IN ('completed', 'completed_with_errors')
+                  AND "finishedAt" IS NOT NULL
+                ORDER BY "startedAt" DESC LIMIT 1
+                """,
+                (source_id,),
+            )
+            return cursor.fetchone()
+
+    def has_unassigned_publisher(
+        self,
+        external_id: str,
+        previous_repair_window: tuple[datetime, datetime] | None = None,
+        source_id: str = "bbm",
+    ) -> bool:
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT EXISTS (
+                  SELECT 1 FROM external_references r
+                  JOIN editions e ON e."mangaId" = r."entityId"
+                  JOIN publishers p ON p.id = e."publisherId"
+                  WHERE r."sourceId" = %s AND r."entityType" = 'manga'
+                    AND r."externalId" = %s AND (
+                      LOWER(p.name) IN ('não informada', 'nao informada')
+                      OR (%s::timestamptz IS NOT NULL AND e."updatedAt" BETWEEN %s AND %s)
+                    )
+                )
+                """,
+                (
+                    source_id,
+                    external_id,
+                    previous_repair_window[0] if previous_repair_window else None,
+                    previous_repair_window[0] if previous_repair_window else None,
+                    previous_repair_window[1] if previous_repair_window else None,
+                ),
+            )
+            return bool(cursor.fetchone()[0])
+
+    def repair_publisher(
+        self,
+        external_id: str,
+        publisher_name: str,
+        previous_repair_window: tuple[datetime, datetime] | None = None,
+        source_id: str = "bbm",
+    ) -> bool:
+        """Update only a work's publisher link; leave its volumes and prices untouched."""
+        publisher_name = publisher_name.strip() or "Não informada"
+        publisher_slug = slugify(publisher_name)
+        target_is_unknown = publisher_name.casefold() in {
+            "não informada",
+            "nao informada",
+        }
+        with psycopg.connect(self.db_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT r."entityId" FROM external_references r
+                WHERE r."sourceId" = %s AND r."entityType" = 'manga'
+                  AND r."externalId" = %s
+                """,
+                (source_id, external_id),
+            )
+            manga = cursor.fetchone()
+            if manga is None:
+                return False
+            manga_id = manga[0]
+
+            cursor.execute(
+                """
+                SELECT e.id, p.id, p.name, e."updatedAt" FROM editions e
+                JOIN publishers p ON p.id = e."publisherId"
+                WHERE e."mangaId" = %s
+                ORDER BY e."createdAt"
+                """,
+                (manga_id,),
+            )
+            editions = cursor.fetchall()
+            if not editions:
+                return False
+
+            window_start, window_end = previous_repair_window or (None, None)
+            candidates = [
+                edition
+                for edition in editions
+                if (
+                    edition[2].casefold() in {"não informada", "nao informada"}
+                    and not target_is_unknown
+                )
+                or (
+                    window_start is not None
+                    and window_start <= edition[3] <= window_end
+                    and edition[2].casefold() != publisher_name.casefold()
+                )
+            ]
+            if not candidates:
+                return False
+
+            cursor.execute(
+                """
+                INSERT INTO publishers (id, name, slug, "createdAt", "updatedAt")
+                VALUES (gen_random_uuid(), %s, %s, NOW(), NOW())
+                ON CONFLICT (slug) DO NOTHING
+                """,
+                (publisher_name.strip(), publisher_slug),
+            )
+            cursor.execute(
+                "SELECT id FROM publishers WHERE slug = %s", (publisher_slug,)
+            )
+            publisher_id = cursor.fetchone()[0]
+            canonical = next(
+                (edition[0] for edition in editions if edition[1] == publisher_id),
+                None,
+            )
+            if canonical:
+                target_edition_id = canonical
+                for edition in candidates:
+                    if edition[0] != canonical:
+                        self._merge_edition(cursor, target_edition_id, edition[0])
+            else:
+                target_edition_id = candidates[0][0]
+                for edition in candidates[1:]:
+                    self._merge_edition(cursor, target_edition_id, edition[0])
+                cursor.execute(
+                    'UPDATE editions SET "publisherId" = %s, "updatedAt" = NOW() WHERE id = %s',
+                    (publisher_id, target_edition_id),
+                )
+            return True
+
     @staticmethod
     def _save_volume_variant(
         cursor, volume_id: str, variant: VolumeVariantCollected, source_id: str

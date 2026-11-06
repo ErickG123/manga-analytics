@@ -5,7 +5,7 @@ from collector.src.normalizers.data_normalizer import (
     parse_brazilian_date,
     parse_price_brl,
 )
-from collector.src.parsers.bbm_parser import parse_bbm_page
+from collector.src.parsers.bbm_parser import parse_bbm_page, parse_bbm_publisher
 
 
 def test_parse_price_brl():
@@ -89,6 +89,32 @@ def test_parser_does_not_assume_panini_for_unknown_publisher():
     )
     assert parsed_without_publisher["publisher"] == "Não informada"
     assert parsed_without_publisher["volume_parse_complete"] is False
+
+
+def test_parser_reads_brazilian_publisher_when_colon_is_on_next_line():
+    html = """<p>Editora brasileira<br />: Panini</p>
+    <p>Editora original<br />: Shueisha</p>"""
+
+    parsed = parse_bbm_page(html, "Obra de teste")
+
+    assert parsed["publisher"] == "Panini"
+    assert parse_bbm_publisher(html) == "Panini"
+
+
+def test_parser_does_not_treat_prepublication_magazine_as_brazilian_publisher():
+    html = """<p>Pré-publicação<br />: Afternoon</p>
+    <p>Editora original<br />: Kodansha</p>
+    <p>Editora brasileira<br />: Panini</p>"""
+
+    assert parse_bbm_publisher(html) == "Panini"
+
+
+def test_parser_keeps_publisher_unknown_when_only_prepublication_is_present():
+    html = (
+        "<p>Pré-publicação<br />: Afternoon</p><p>Editora original<br />: Kodansha</p>"
+    )
+
+    assert parse_bbm_publisher(html) == "Não informada"
 
 
 def test_parser_deduplicates_identical_volume_rows():

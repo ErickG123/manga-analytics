@@ -52,6 +52,7 @@ class ImportService:
         limit: int | None = 10,
         dry_run: bool = False,
         force_refresh: bool = False,
+        force_reparse: bool = False,
         run_type: str = "import",
         start_page: int = 1,
         orderby: str = "modified",
@@ -84,6 +85,7 @@ class ImportService:
                 "max_run_duration_seconds": config.max_run_duration_seconds,
                 "dry_run": dry_run,
                 "force_refresh": force_refresh,
+                "force_reparse": force_reparse,
                 "run_type": run_type,
             }
             if not config.enabled:
@@ -312,7 +314,8 @@ class ImportService:
                 content_hash = hashlib.sha256(html_content.encode("utf-8")).hexdigest()
 
                 if (
-                    force_refresh
+                    not force_reparse
+                    and force_refresh
                     and prior
                     and prior.get("sync_status") == "complete"
                     and prior.get("source_modified_at") == modified

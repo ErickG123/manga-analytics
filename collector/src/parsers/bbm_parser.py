@@ -55,6 +55,28 @@ def _is_release_date(value: str) -> bool:
     return precision in {"day", "month", "year"} and year is not None
 
 
+def _publisher_from_text(text_content: str) -> str:
+    pub_match = re.search(
+        r"Editora(?:\s+brasileira)?\s*:\s*([^\n\r]+)",
+        text_content,
+        re.IGNORECASE,
+    )
+    if not pub_match:
+        return "Não informada"
+
+    publisher_name = pub_match.group(1).strip() or "Não informada"
+    for candidate in ["Panini", "JBC", "Pipoca & Nanquim", "NewPOP", "Conrad", "L&PM"]:
+        if candidate.casefold() in publisher_name.casefold():
+            return candidate
+    return publisher_name
+
+
+def parse_bbm_publisher(html: str) -> str:
+    """Extract only the Brazilian publisher, without parsing volume tables."""
+    text_content = BeautifulSoup(html, "html.parser").get_text("\n", strip=True)
+    return _publisher_from_text(text_content)
+
+
 def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "html.parser")
 
@@ -73,23 +95,7 @@ def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
     if author_match:
         author = author_match.group(1).strip()
 
-    pub_match = re.search(
-        r"(?:Editora|Publicação):\s*([^\n\r]+)", text_content, re.IGNORECASE
-    )
-    if pub_match:
-        p_raw = pub_match.group(1).strip()
-        publisher_name = p_raw or "Não informada"
-        for candidate in [
-            "Panini",
-            "JBC",
-            "Pipoca & Nanquim",
-            "NewPOP",
-            "Conrad",
-            "L&PM",
-        ]:
-            if candidate.lower() in p_raw.lower():
-                publisher_name = candidate
-                break
+    publisher_name = _publisher_from_text(text_content)
 
     # 2. Capas de volumes brasileiros
     covers: list[str] = []

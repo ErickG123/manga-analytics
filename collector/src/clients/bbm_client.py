@@ -123,7 +123,7 @@ class BBMClient:
 
         attempts = self.config.max_retries
         request_kind = (
-            "detail" if params and "content" in params.get("_fields", "") else "list"
+            "detail" if url.rstrip("/") != self.config.base_url.rstrip("/") else "list"
         )
         for attempt in range(attempts):
             self._wait_for_rate_limit()
@@ -338,16 +338,27 @@ class BBMClient:
         order: str = "desc",
         modified_after: datetime | None = None,
         modified_before: datetime | None = None,
+        include_content: bool = False,
+        respect_run_limits: bool = True,
     ) -> Iterator[dict[str, Any]]:
         if start_page < 1:
             raise ValueError("start_page deve ser maior que zero")
         page = start_page
         count = 0
         requested_limit = limit if limit is not None else self.config.max_items_per_run
-        max_items = min(requested_limit, self.config.max_items_per_run)
+        max_items = (
+            min(requested_limit, self.config.max_items_per_run)
+            if respect_run_limits
+            else requested_limit
+        )
         page_size = max(1, min(100, per_page or max_items))
-        page_limit = min(
-            max_pages or self.config.max_pages_per_run, self.config.max_pages_per_run
+        page_limit = (
+            min(
+                max_pages or self.config.max_pages_per_run,
+                self.config.max_pages_per_run,
+            )
+            if respect_run_limits
+            else max_pages or 100
         )
         pages_read = 0
 
@@ -356,7 +367,9 @@ class BBMClient:
                 "parent": self.config.parent_catalog_id,
                 "per_page": page_size,
                 "page": page,
-                "_fields": "id,title,link,modified,parent",
+                "_fields": "id,title,link,modified,parent,content"
+                if include_content
+                else "id,title,link,modified,parent",
                 "orderby": orderby,
                 "order": order,
             }

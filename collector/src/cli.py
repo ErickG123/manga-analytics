@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from collector.src.services.import_service import ImportService
+from collector.src.services.publisher_repair_service import PublisherRepairService
 
 
 def setup_logging(verbose: bool):
@@ -51,6 +52,23 @@ def main():
     retry_failed_parser.add_argument("--limit", type=int, default=5)
     retry_failed_parser.add_argument("--dry-run", action="store_true")
     retry_failed_parser.add_argument("--metrics-json", type=Path)
+
+    publisher_repair_parser = subparsers.add_parser(
+        "repair-publishers",
+        help="Corrige apenas editoras usando conteúdo da listagem paginada do BBM",
+    )
+    publisher_repair_parser.add_argument(
+        "--limit",
+        type=int,
+        default=2000,
+        help="Máximo de fichas da listagem (padrão cobre o catálogo atual)",
+    )
+    publisher_repair_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Mostra quantos vínculos seriam corrigidos, sem gravar no banco",
+    )
+    publisher_repair_parser.add_argument("--metrics-json", type=Path)
 
     # Subcomando import
     import_parser = subparsers.add_parser("import", help="Importa dados do BBM")
@@ -109,6 +127,11 @@ def main():
     )
     backfill_parser.add_argument(
         "--resume", action="store_true", help="Continua da página salva no checkpoint"
+    )
+    backfill_parser.add_argument(
+        "--force-reparse",
+        action="store_true",
+        help="Reconsulta e reprocessa fichas já importadas, mesmo com conteúdo inalterado",
     )
     backfill_parser.add_argument(
         "--reset-checkpoint",
@@ -196,6 +219,18 @@ def main():
         if result.failed > 0 and result.created == 0:
             sys.exit(1)
         sys.exit(0)
+    elif args.command == "repair-publishers":
+        if args.limit < 1 or args.limit > 5000:
+            parser.error("--limit deve estar entre 1 e 5000")
+        result = PublisherRepairService().run(limit=args.limit, dry_run=args.dry_run)
+        print(json.dumps(result, ensure_ascii=True, indent=2, default=str))
+        if args.metrics_json:
+            args.metrics_json.parent.mkdir(parents=True, exist_ok=True)
+            args.metrics_json.write_text(
+                json.dumps(result, ensure_ascii=False, indent=2, default=str),
+                encoding="utf-8",
+            )
+        sys.exit(1 if result["failed"] or result["termination_status"] else 0)
     elif args.command == "sync":
         if args.limit < 1:
             parser.error("--limit deve ser maior que zero")
@@ -251,6 +286,8 @@ def main():
             result = service.run_import(
                 limit=args.batch_size,
                 dry_run=args.dry_run,
+                force_refresh=args.force_reparse,
+                force_reparse=args.force_reparse,
                 run_type="backfill",
                 start_page=start_page,
                 orderby="id",

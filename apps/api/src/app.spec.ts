@@ -217,6 +217,7 @@ describe('Fastify REST API', () => {
       payload: { limit: 5 },
     });
     expect(res1.statusCode).toBe(200);
+    const body1 = JSON.parse(res1.body) as { jobId: string };
 
     // 2º disparo simultâneo imediato deve colidir em 409 Conflict
     const res2 = await app.inject({
@@ -230,6 +231,12 @@ describe('Fastify REST API', () => {
     expect(res2.statusCode).toBe(409);
     const body2 = JSON.parse(res2.body);
     expect(body2.message).toContain('Já existe uma sincronização em andamento');
+
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+    const completedJob = await AppDataSource.getRepository(ImportJob).findOneBy({
+      id: body1.jobId,
+    });
+    expect(completedJob?.status).toBe('completed');
   });
 
   it('GET /api/v1/analytics/prices/by-year deve retornar evolução por ano', async () => {

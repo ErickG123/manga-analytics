@@ -291,6 +291,33 @@ def test_catalog_metadata_advances_pages_and_uses_stable_order(test_config):
     )
 
 
+def test_catalog_metadata_can_include_content_without_counting_as_detail_request(
+    test_config,
+):
+    client = BBMClient(config=test_config)
+    client._wait_for_rate_limit = MagicMock()
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = 200
+    response.json.return_value = [{"id": 11, "content": {"rendered": "Editora: JBC"}}]
+    response.headers = {"x-wp-totalpages": "1", "x-wp-total": "1"}
+    response.raise_for_status = MagicMock()
+    client.client.get = MagicMock(return_value=response)
+
+    entries = list(
+        client.iter_catalog_metadata(
+            limit=1,
+            per_page=100,
+            include_content=True,
+            respect_run_limits=False,
+        )
+    )
+
+    assert entries[0]["content"]["rendered"] == "Editora: JBC"
+    assert client.client.get.call_args.kwargs["params"]["_fields"].endswith(",content")
+    assert client.metrics["list_request_count"] == 1
+    assert client.metrics["detail_request_count"] == 0
+
+
 def test_catalog_metadata_falls_back_to_short_page_without_pagination_headers(
     test_config,
 ):
