@@ -2,19 +2,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { SelectQueryBuilder } from 'typeorm';
 import { AppDataSource } from '../../config/data-source.js';
 import { Edition, Volume } from '../../entities/index.js';
-
-interface AnalyticsFilters {
-  yearFrom?: string;
-  yearTo?: string;
-  publisherId?: string;
-  category?: string;
-  status?: string;
-  hasPrice?: string;
-  manga?: string;
-}
+import type { AnalyticsFilters } from './models/analytics.model.js';
 
 const currentPrice = `(SELECT p.amount::numeric FROM volume_prices p WHERE p."volumeId" = v.id ORDER BY p."observedAt" DESC NULLS LAST, p."createdAt" DESC LIMIT 1)`;
 const hasCurrentPrice = `EXISTS (SELECT 1 FROM volume_prices p WHERE p."volumeId" = v.id)`;
+const priceBandOrder = ['0–19,99', '20–39,99', '40–59,99', '60–99,99', '100+'];
 
 function applyFilters(qb: SelectQueryBuilder<Volume>, filters: AnalyticsFilters): void {
   if (filters.publisherId)
@@ -53,7 +45,10 @@ export async function registerAnalyticsRoutes(app: FastifyInstance) {
       .addSelect(`COUNT(DISTINCT v.id) FILTER (WHERE ${hasCurrentPrice})`, 'pricedVolumes')
       .addSelect(`COUNT(DISTINCT v.id) FILTER (WHERE NOT ${hasCurrentPrice})`, 'unpricedVolumes')
       .addSelect('COUNT(DISTINCT v.id) FILTER (WHERE v."releaseYear" IS NOT NULL)', 'datedVolumes')
-      .addSelect('COUNT(DISTINCT v.id) FILTER (WHERE v."releaseYear" IS NOT NULL)', 'releaseCount')
+      .addSelect(
+        'COUNT(DISTINCT v.id) FILTER (WHERE v."releaseYear" IS NOT NULL AND v."releaseStatus" = \'released\')',
+        'releaseCount',
+      )
       .addSelect(`AVG(${currentPrice}) FILTER (WHERE ${hasCurrentPrice})`, 'averagePrice')
       .addSelect(`MIN(${currentPrice}) FILTER (WHERE ${hasCurrentPrice})`, 'minPrice')
       .addSelect(`MAX(${currentPrice}) FILTER (WHERE ${hasCurrentPrice})`, 'maxPrice')
@@ -80,7 +75,7 @@ export async function registerAnalyticsRoutes(app: FastifyInstance) {
       maxPrice: round(row?.maxPrice === null ? null : Number(row?.maxPrice)),
       medianPrice: round(row?.medianPrice === null ? null : Number(row?.medianPrice)),
       sampleSize: pricedVolumes,
-      priceBasis: 'Último preço registrado por volume; preço de capa informado na fonte.',
+      priceBasis: 'Preço de capa informado pela fonte para cada volume; ano pelo lançamento.',
       releaseCount: Number(row?.releaseCount ?? 0),
     });
   });
@@ -145,6 +140,10 @@ export async function registerAnalyticsRoutes(app: FastifyInstance) {
         slug: row.slug,
         volumesCount: Number(row.volumesCount),
         sampleSize: Number(row.sampleSize),
+        pricedVolumes: Number(row.sampleSize),
+        priceCoverage: Number(row.volumesCount)
+          ? Number(row.sampleSize) / Number(row.volumesCount)
+          : null,
         averagePrice: round(row.averagePrice === null ? null : Number(row.averagePrice)),
       })),
     );
@@ -156,6 +155,11 @@ export async function registerAnalyticsRoutes(app: FastifyInstance) {
       const qb = baseQuery()
         .select('v."releaseYear"', 'year')
         .addSelect(`AVG(${currentPrice}) FILTER (WHERE ${hasCurrentPrice})`, 'averagePrice')
+        .addSelect(
+          `percentile_cont(0.5) WITHIN GROUP (ORDER BY ${currentPrice}) FILTER (WHERE ${hasCurrentPrice})`,
+          'medianPrice',
+        )
+        .addSelect(`COUNT(DISTINCT v.id) FILTER (WHERE ${hasCurrentPrice})`, 'sampleSize')
         .addSelect('COUNT(DISTINCT v.id)', 'volumesCount')
         .where('v."releaseYear" IS NOT NULL')
         .groupBy('v."releaseYear"')
@@ -166,6 +170,8 @@ export async function registerAnalyticsRoutes(app: FastifyInstance) {
         rows.map((row) => ({
           year: Number(row.year),
           averagePrice: round(row.averagePrice === null ? null : Number(row.averagePrice)),
+          medianPrice: round(row.medianPrice === null ? null : Number(row.medianPrice)),
+          sampleSize: Number(row.sampleSize),
           volumesCount: Number(row.volumesCount),
         })),
       );
@@ -269,6 +275,48 @@ export async function registerAnalyticsRoutes(app: FastifyInstance) {
   );
 
   app.get(
+    '/api/v1/analytics/releases/by-publisher-month',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const filters = req.query as AnalyticsFilters;
+      const fromYear = filters.yearFrom === undefined ? undefined : Number(filters.yearFrom);
+      const toYear = filters.yearTo === undefined ? undefined : Number(filters.yearTo);
+      if (
+        (fromYear !== undefined &&
+          (!Number.isFinite(fromYear) || fromYear < 1900 || fromYear > 2100)) ||
+        (toYear !== undefined && (!Number.isFinite(toYear) || toYear < 1900 || toYear > 2100)) ||
+        (fromYear !== undefined && toYear !== undefined && toYear < fromYear) ||
+        (fromYear !== undefined && toYear !== undefined && toYear - fromYear > 19)
+      )
+        return reply.badRequest('O período da linha do tempo deve ter no máximo 20 anos.');
+      const qb = baseQuery()
+        .select('pub.id', 'publisherId')
+        .addSelect('pub.name', 'publisher')
+        .addSelect('v."releaseYear"', 'year')
+        .addSelect('v."releaseMonth"', 'month')
+        .addSelect('COUNT(DISTINCT v.id)', 'count')
+        .where('v."releaseYear" IS NOT NULL AND v."releaseMonth" BETWEEN 1 AND 12')
+        .groupBy('pub.id')
+        .addGroupBy('pub.name')
+        .addGroupBy('v."releaseYear"')
+        .addGroupBy('v."releaseMonth"')
+        .orderBy('v."releaseYear"', 'ASC')
+        .addOrderBy('v."releaseMonth"', 'ASC')
+        .addOrderBy('pub.name', 'ASC');
+      applyFilters(qb, filters);
+      const rows = await qb.getRawMany<Record<string, string>>();
+      return reply.send(
+        rows.map((row) => ({
+          publisherId: row.publisherId,
+          publisher: row.publisher,
+          year: Number(row.year),
+          month: Number(row.month),
+          count: Number(row.count),
+        })),
+      );
+    },
+  );
+
+  app.get(
     '/api/v1/analytics/releases/by-year',
     async (req: FastifyRequest, reply: FastifyReply) => {
       const filters = req.query as AnalyticsFilters;
@@ -296,6 +344,9 @@ export async function registerAnalyticsRoutes(app: FastifyInstance) {
       .groupBy('band');
     applyFilters(qb, filters);
     const rows = await qb.getRawMany<{ band: string; count: string }>();
+    rows.sort(
+      (left, right) => priceBandOrder.indexOf(left.band) - priceBandOrder.indexOf(right.band),
+    );
     return reply.send(rows.map((row) => ({ band: row.band, count: Number(row.count) })));
   });
 }

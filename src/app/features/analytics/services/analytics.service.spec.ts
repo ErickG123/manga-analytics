@@ -82,6 +82,39 @@ describe('AnalyticsService', () => {
     await promise;
   });
 
+  it('busca a série mensal de lançamentos por editora com os mesmos filtros', async () => {
+    const promise = service.getReleaseTimelineByPublisher({ yearFrom: 2024, publisherId: 'pub-1' });
+    const req = httpTesting.expectOne(
+      (request) =>
+        request.url === `${environment.apiUrl}/analytics/releases/by-publisher-month` &&
+        request.params.get('yearFrom') === '2024' &&
+        request.params.get('publisherId') === 'pub-1',
+    );
+    req.flush([{ publisherId: 'pub-1', publisher: 'Editora', year: 2024, month: 4, count: 3 }]);
+    await expect(promise).resolves.toHaveLength(1);
+  });
+
+  it('busca médias e medianas de preço agrupadas pelo ano de lançamento', async () => {
+    const promise = service.getPricesByYear({ yearFrom: 2022, yearTo: 2026 });
+    const req = httpTesting.expectOne(
+      (request) =>
+        request.url === `${environment.apiUrl}/analytics/prices/by-year` &&
+        request.params.get('yearFrom') === '2022' &&
+        request.params.get('yearTo') === '2026',
+    );
+    req.flush([
+      { year: 2024, averagePrice: 42.5, medianPrice: 39.9, sampleSize: 20, volumesCount: 23 },
+    ]);
+    await expect(promise).resolves.toMatchObject([{ medianPrice: 39.9, sampleSize: 20 }]);
+  });
+
+  it('propaga erro de consulta para que a tela não apresente falha como zero', async () => {
+    const promise = service.getOverview();
+    const req = httpTesting.expectOne(`${environment.apiUrl}/analytics/overview`);
+    req.flush('database unavailable', { status: 503, statusText: 'Unavailable' });
+    await expect(promise).rejects.toBeTruthy();
+  });
+
   it('normaliza indicadores ausentes sem mostrar valores vazios ou undefined', async () => {
     const promise = service.getOverview();
     const req = httpTesting.expectOne(`${environment.apiUrl}/analytics/overview`);

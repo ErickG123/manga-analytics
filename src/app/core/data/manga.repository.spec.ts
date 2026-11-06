@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { MockMangaRepository, MANGA_REPOSITORY } from './manga.repository';
-import type { MangaRepository } from './manga.repository';
+import type { MangaRepository } from '../models/manga-repository.model';
 
 describe('MockMangaRepository', () => {
   let repository: MangaRepository;

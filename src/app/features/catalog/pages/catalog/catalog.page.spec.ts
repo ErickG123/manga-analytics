@@ -2,7 +2,7 @@ import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { CatalogPageComponent } from './catalog.page';
 import { MANGA_REPOSITORY } from '../../../../core/data/manga.repository';
-import type { MangaRepository } from '../../../../core/data/manga.repository';
+import type { MangaRepository } from '../../../../core/models/manga-repository.model';
 import type { Manga } from '../../models/manga.model';
 
 describe('CatalogPageComponent', () => {

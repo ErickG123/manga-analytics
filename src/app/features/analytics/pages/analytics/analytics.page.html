@@ -2,13 +2,17 @@
   <div class="eyebrow">INTELIGÊNCIA DE MERCADO</div>
   <h1 class="page-title">Análises de preços &amp; mercado<span class="heading-dot">.</span></h1>
   <p class="muted">
-    Indicadores calculados sobre os registros disponíveis, com filtros aplicados em todas as
-    consultas.
+    Compare o catálogo, acompanhe lançamentos e explore preços registrados. Os filtros são aplicados
+    aos indicadores, gráficos e relatórios.
   </p>
 
+  <div class="filter-heading">
+    <h2>Filtros</h2>
+    <button type="button" class="btn btn-secondary" (click)="clearFilters()">Limpar filtros</button>
+  </div>
   <div class="analytics-filters" aria-label="Filtros globais das análises">
     <label
-      >Ano desde<input
+      >Ano de lançamento desde<input
         type="number"
         min="1900"
         max="2100"
@@ -34,17 +38,19 @@
         }
       </select></label
     >
-    <label
-      >Categoria<select
-        [ngModel]="category()"
-        (ngModelChange)="category.set($event); filtersChanged()"
+    @if (categories().length > 1) {
+      <label
+        >Categoria<select
+          [ngModel]="category()"
+          (ngModelChange)="category.set($event); filtersChanged()"
+        >
+          <option value="">Todas</option>
+          @for (item of categories(); track item) {
+            <option [value]="item">{{ item }}</option>
+          }
+        </select></label
       >
-        <option value="">Todas</option>
-        @for (item of categories(); track item) {
-          <option [value]="item">{{ item }}</option>
-        }
-      </select></label
-    >
+    }
     <label
       >Situação do volume<select
         [ngModel]="status()"
@@ -75,6 +81,11 @@
     /></label>
   </div>
 
+  @if (!periodValid()) {
+    <p role="alert" class="error-message">
+      Escolha anos válidos e um intervalo de no máximo 20 anos.
+    </p>
+  }
   @if (loading()) {
     <p role="status" class="muted">Atualizando indicadores…</p>
   }
@@ -84,19 +95,19 @@
 
   <div class="analytics-grid">
     <article class="metric">
-      <span>TOTAL DE OBRAS</span><strong>{{ overview().totalMangas }}</strong>
+      <span>OBRAS NO FILTRO</span><strong>{{ overview().totalMangas }}</strong>
     </article>
     <article class="metric">
       <span>VOLUMES NO FILTRO</span><strong>{{ overview().totalVolumes }}</strong>
     </article>
     <article class="metric">
-      <span>LANÇAMENTOS NO PERÍODO</span><strong>{{ overview().releaseCount }}</strong>
+      <span>VOLUMES LANÇADOS COM ANO</span><strong>{{ overview().releaseCount }}</strong>
     </article>
     <article class="metric">
-      <span>EDITORAS MAPEADAS</span><strong>{{ overview().totalPublishers }}</strong>
+      <span>EDITORAS NO FILTRO</span><strong>{{ overview().totalPublishers }}</strong>
     </article>
     <article class="metric">
-      <span>PREÇO MÉDIO</span
+      <span>PREÇO MÉDIO DE CAPA</span
       ><strong>{{
         overview().averagePrice === null
           ? 'Sem amostra'
@@ -105,32 +116,32 @@
       ><small>{{ overview().sampleSize }} volumes com preço</small>
     </article>
     <article class="metric">
-      <span>PREÇOS CONHECIDOS</span><strong>{{ overview().pricedVolumes }}</strong
+      <span>COBERTURA DE PREÇOS</span><strong>{{ overview().pricedVolumes }}</strong
       ><small
         >{{
           overview().priceCoverage === null
             ? 'Sem amostra'
             : (overview().priceCoverage | percent: '1.0-1')
         }}
-        de cobertura</small
+        dos volumes</small
       >
     </article>
     <article class="metric">
-      <span>SEM PREÇO</span><strong>{{ overview().unpricedVolumes }}</strong>
+      <span>VOLUMES SEM PREÇO</span><strong>{{ overview().unpricedVolumes }}</strong>
     </article>
     <article class="metric">
-      <span>DATAS CONHECIDAS</span><strong>{{ overview().datedVolumes }}</strong
+      <span>DATAS COM ANO</span><strong>{{ overview().datedVolumes }}</strong
       ><small
         >{{
           overview().dateCoverage === null
             ? 'Sem amostra'
             : (overview().dateCoverage | percent: '1.0-1')
         }}
-        com ano informado</small
+        dos volumes</small
       >
     </article>
     <article class="metric">
-      <span>MEDIANA DE PREÇO</span
+      <span>MEDIANA DO PREÇO DE CAPA</span
       ><strong>{{
         overview().medianPrice === null
           ? 'Sem amostra'
@@ -138,7 +149,7 @@
       }}</strong>
     </article>
     <article class="metric">
-      <span>MENOR / MAIOR PREÇO</span
+      <span>MENOR / MAIOR PREÇO DE CAPA</span
       ><strong>{{
         overview().minPrice === null || overview().maxPrice === null
           ? 'Sem amostra'
@@ -149,81 +160,256 @@
     </article>
   </div>
   <p class="metric-methodology">
-    {{ overview().priceBasis }} Período: {{ yearFrom() }}–{{ yearTo() }}. Preços ausentes não entram
-    na média, mediana, mínimo ou máximo.
+    {{ overview().priceBasis }} O intervalo dos filtros considera o ano de lançamento. Preços
+    ausentes não entram nas médias, medianas, mínimos ou máximos.
   </p>
 
-  <div class="chart-grid">
-    <article class="panel">
-      <h2>Preço médio por editora</h2>
-      <p class="muted">Amostra exibida por editora: volumes com preço registrado.</p>
-      <div
-        #publisherChart
-        class="chart"
-        role="img"
-        aria-label="Gráfico de preço médio por editora"
-      ></div>
-    </article>
-    <article class="panel">
-      <h2>Cobertura de preços por editora</h2>
-      <p class="muted">Percentual de volumes com preço registrado no filtro.</p>
-      <div
-        #coverageChart
-        class="chart"
-        role="img"
-        aria-label="Gráfico de cobertura de preços por editora"
-      ></div>
-    </article>
-    <article class="panel">
-      <h2>Lançamentos por mês</h2>
-      <p class="muted">
-        Meses sem registros no intervalo selecionado aparecem com zero. Datas só anuais não entram
-        nesta série.
-      </p>
-      <div #releaseChart class="chart" role="img" aria-label="Gráfico mensal de lançamentos"></div>
-    </article>
-    <article class="panel">
-      <h2>Lançamentos por ano</h2>
-      <p class="muted">Conta volumes com ano de lançamento conhecido.</p>
-      <div #yearChart class="chart" role="img" aria-label="Gráfico anual de lançamentos"></div>
-    </article>
-    <article class="panel">
-      <h2>Distribuição de preços</h2>
-      <p class="muted">Faixas aplicadas ao último preço registrado por volume.</p>
-      <div #bandsChart class="chart" role="img" aria-label="Distribuição de preços por faixa"></div>
-    </article>
-    <article class="panel">
-      <h2>Volumes por editora</h2>
-      <p class="muted">Quantidade de volumes no filtro atual.</p>
-      <div
-        #volumeChart
-        class="chart"
-        role="img"
-        aria-label="Quantidade de volumes por editora"
-      ></div>
-    </article>
-    <article class="panel">
-      <h2>Obras por editora</h2>
-      <p class="muted">Contagem de obras distintas no filtro atual.</p>
-      <div #mangaChart class="chart" role="img" aria-label="Quantidade de obras por editora"></div>
-    </article>
-  </div>
+  <section class="analytics-section" aria-labelledby="publisher-section-title">
+    <div class="section-heading">
+      <div>
+        <div class="eyebrow">COMPARAÇÃO DO CATÁLOGO</div>
+        <h2 id="publisher-section-title">Editoras</h2>
+      </div>
+      <p class="muted">Gráficos limitados às 12 editoras com mais volumes no filtro.</p>
+    </div>
+    <div class="chart-grid">
+      <article class="panel">
+        <h3>Preço médio de capa por editora</h3>
+        <p class="muted">
+          Média por volume com preço conhecido; compare também o tamanho da amostra.
+        </p>
+        @if (hasPublisherPrices()) {
+          <div
+            #publisherChart
+            class="chart"
+            role="img"
+            aria-label="Preço médio de capa por editora"
+          ></div>
+          <div class="sample-list" aria-label="Volumes precificados por editora">
+            @for (publisher of topPublishers(); track publisher.id) {
+              @if (publisher.averagePrice !== null) {
+                <span>{{ publisher.name }}: n={{ publisher.sampleSize }}</span>
+              }
+            }
+          </div>
+        } @else {
+          <p class="empty-state">Sem volumes com preço nesse filtro.</p>
+        }
+      </article>
+      <article class="panel">
+        <h3>Cobertura de preços por editora</h3>
+        <p class="muted">Percentual de volumes da editora com preço registrado.</p>
+        @if (hasPublisherPrices()) {
+          <div
+            #coverageChart
+            class="chart"
+            role="img"
+            aria-label="Cobertura de preços por editora"
+          ></div>
+        } @else {
+          <p class="empty-state">Nenhuma editora corresponde aos filtros.</p>
+        }
+      </article>
+      <article class="panel panel-wide">
+        <h3>Comparativo do catálogo por editora</h3>
+        <p class="muted">
+          Ordenado pelo número de volumes. A cobertura usa os volumes com preço de capa informado.
+        </p>
+        @if (topPublishers().length) {
+          <div class="table-scroll">
+            <table class="data-table publisher-table">
+              <thead>
+                <tr>
+                  <th>Editora</th>
+                  <th>Obras</th>
+                  <th>Volumes</th>
+                  <th>Com preço</th>
+                  <th>Cobertura</th>
+                  <th>Preço médio</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (publisher of topPublishers(); track publisher.id) {
+                  <tr>
+                    <td>{{ publisher.name }}</td>
+                    <td>{{ publisher.mangaCount }}</td>
+                    <td>{{ publisher.volumesCount }}</td>
+                    <td>{{ publisher.sampleSize }}</td>
+                    <td>
+                      {{
+                        publisher.priceCoverage === null
+                          ? 'Sem amostra'
+                          : (publisher.priceCoverage | percent: '1.0-1')
+                      }}
+                    </td>
+                    <td>
+                      {{
+                        publisher.averagePrice === null
+                          ? 'Sem amostra'
+                          : (publisher.averagePrice
+                            | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
+                      }}
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else {
+          <p class="empty-state">Nenhuma editora corresponde aos filtros.</p>
+        }
+      </article>
+    </div>
+  </section>
+
+  <section class="analytics-section" aria-labelledby="release-section-title">
+    <div class="section-heading">
+      <div>
+        <div class="eyebrow">CALENDÁRIO DO CATÁLOGO</div>
+        <h2 id="release-section-title">Linha do tempo de lançamentos</h2>
+      </div>
+      <p class="muted">Datas sem mês não são atribuídas a um mês fictício.</p>
+    </div>
+    <div class="chart-grid">
+      <article class="panel">
+        <h3>Lançamentos por mês</h3>
+        <p class="muted">
+          Volumes com ano e mês de lançamento informados; a situação pode estar desconhecida.
+        </p>
+        @if (hasMonthlyReleases()) {
+          <div #releaseChart class="chart" role="img" aria-label="Lançamentos por mês"></div>
+        } @else {
+          <p class="empty-state">Não há lançamentos mensais conhecidos nesse filtro.</p>
+        }
+      </article>
+      <article class="panel panel-wide">
+        <h3>Lançamentos por mês e editora</h3>
+        <p class="muted">
+          Exibe até 7 editoras; as demais ficam agrupadas. Datas sem mês não são distribuídas.
+        </p>
+        @if (publisherReleaseMonths().length) {
+          <div
+            #publisherTimelineChart
+            class="chart chart-tall"
+            role="img"
+            aria-label="Linha do tempo de lançamentos por editora"
+          ></div>
+        } @else {
+          <p class="empty-state">
+            Não há datas com mês conhecido para essas editoras e esse intervalo.
+          </p>
+        }
+      </article>
+      <article class="panel">
+        <h3>Lançamentos por ano</h3>
+        <p class="muted">Volumes com ano de lançamento informado e situação selecionada.</p>
+        @if (releasesByYear().length) {
+          <div #yearChart class="chart" role="img" aria-label="Lançamentos por ano"></div>
+        } @else {
+          <p class="empty-state">Não há anos de lançamento nesse filtro.</p>
+        }
+      </article>
+    </div>
+  </section>
+
+  <section class="analytics-section" aria-labelledby="price-section-title">
+    <div class="section-heading">
+      <div>
+        <div class="eyebrow">PREÇOS REGISTRADOS</div>
+        <h2 id="price-section-title">Faixas e comparação anual</h2>
+      </div>
+      <p class="muted">Preços de capa da fonte, agrupados pelo ano de lançamento do volume.</p>
+    </div>
+    <div class="chart-grid">
+      <article class="panel panel-wide">
+        <h3>Preço de capa médio e mediano por ano de lançamento</h3>
+        <p class="muted">
+          Compara o preço de capa informado pelo site para volumes lançados em cada ano. Não é uma
+          série de reajustes de um mesmo volume nem correção pela inflação.
+        </p>
+        @if (hasYearlyPrices()) {
+          <div
+            #priceYearChart
+            class="chart chart-tall"
+            role="img"
+            aria-label="Preço médio e mediano por ano de lançamento"
+          ></div>
+          <div class="sample-list" aria-label="Tamanho das amostras anuais">
+            @for (item of pricesByYear(); track item.year) {
+              <span
+                >{{ item.year }}: n={{ item.sampleSize }} de {{ item.volumesCount }} volumes</span
+              >
+            }
+          </div>
+        } @else {
+          <p class="empty-state">Não há amostra de preços por ano nesse filtro.</p>
+        }
+      </article>
+      <article class="panel">
+        <h3>Distribuição por faixa de preço</h3>
+        <p class="muted">Considera o último preço registrado para cada volume.</p>
+        @if (priceBands().length) {
+          <div
+            #bandsChart
+            class="chart"
+            role="img"
+            aria-label="Distribuição por faixa de preço"
+          ></div>
+        } @else {
+          <p class="empty-state">Não há preços para distribuir nesse filtro.</p>
+        }
+      </article>
+      <article class="panel panel-wide">
+        <h3>Obras com maior preço médio</h3>
+        <p class="muted">Ranking limitado a obras com pelo menos 5 volumes com preço.</p>
+        @if (rankedManga().length) {
+          <div class="table-scroll">
+            <table class="data-table ranking-table">
+              <thead>
+                <tr>
+                  <th>Obra</th>
+                  <th>Preço médio</th>
+                  <th>Volumes com preço</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (item of rankedManga(); track item.id) {
+                  <tr>
+                    <td>{{ item.title }}</td>
+                    <td>
+                      {{ item.averagePrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR' }}
+                    </td>
+                    <td>{{ item.sampleSize }} de {{ item.volumesCount }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else {
+          <p class="empty-state">Nenhuma obra tem 5 ou mais volumes com preço nesse filtro.</p>
+        }
+      </article>
+    </div>
+  </section>
 
   <article class="panel report-panel">
-    <h2>Exportar dados filtrados</h2>
+    <h2>Relatórios filtrados</h2>
     <p class="muted">
-      Os mesmos filtros de período, editora, categoria, situação e preço são aplicados aos arquivos
-      CSV.
+      CSV de lançamentos e de observações de preços. O filtro de ano seleciona o ano de lançamento;
+      a data de observação do preço segue disponível como coluna no arquivo.
     </p>
     <div class="report-actions">
       <button type="button" class="btn" (click)="downloadReleasesCsv()">
         <svg aria-hidden="true" viewBox="0 0 24 24">
-          <path d="M12 3v12m-5-5 5 5 5-5M4 19h16"></path></svg
-        >Baixar lançamentos (CSV)</button
-      ><button type="button" class="btn btn-secondary" (click)="downloadPricesCsv()">
+          <path d="M12 3v12m-5-5 5 5 5-5M4 19h16"></path>
+        </svg>
+        Baixar lançamentos (CSV)
+      </button>
+      <button type="button" class="btn btn-secondary" (click)="downloadPricesCsv()">
         <svg aria-hidden="true" viewBox="0 0 24 24">
-          <path d="M12 3v12m-5-5 5 5 5-5M4 19h16"></path></svg
-        >Baixar preços observados (CSV)
+          <path d="M12 3v12m-5-5 5 5 5-5M4 19h16"></path>
+        </svg>
+        Baixar preços observados (CSV)
       </button>
     </div>
   </article>

@@ -14,6 +14,33 @@
   background: var(--surface-color, #1b1c24);
 }
 
+.filter-heading,
+.section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.filter-heading {
+  margin-top: 1.5rem;
+}
+
+.filter-heading h2,
+.section-heading h2 {
+  margin: 0;
+}
+
+.section-heading {
+  margin: 0 0 1rem;
+}
+
+.section-heading .muted {
+  max-width: 36rem;
+  margin: 0;
+  text-align: right;
+}
+
 .analytics-filters label {
   display: grid;
   gap: 0.45rem;
@@ -95,6 +122,10 @@
   gap: 1rem;
 }
 
+.analytics-section {
+  margin-top: 2.25rem;
+}
+
 .panel {
   min-width: 0;
   padding: 1.25rem;
@@ -103,9 +134,10 @@
   background: var(--surface-color, #1b1c24);
 }
 
-.panel h2 {
+.panel h2,
+.panel h3 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1rem;
 }
 
 .panel > .muted {
@@ -117,6 +149,46 @@
 .chart {
   width: 100%;
   height: 18rem;
+}
+
+.chart-tall {
+  height: 24rem;
+}
+
+.panel-wide {
+  grid-column: span 2;
+}
+
+.empty-state {
+  display: grid;
+  min-height: 12rem;
+  place-items: center;
+  margin: 0;
+  color: var(--text-muted, #a5a9b8);
+  text-align: center;
+}
+
+.ranking-table th:nth-child(2),
+.ranking-table th:nth-child(3),
+.ranking-table td:nth-child(2),
+.ranking-table td:nth-child(3) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.publisher-table th:not(:first-child),
+.publisher-table td:not(:first-child) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sample-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-top: 0.25rem;
+  color: var(--text-muted, #a5a9b8);
+  font-size: 0.78rem;
 }
 
 .report-panel {
@@ -131,6 +203,14 @@
   .chart {
     height: 16rem;
   }
+
+  .chart-tall {
+    height: 20rem;
+  }
+
+  .panel-wide {
+    grid-column: auto;
+  }
 }
 
 @media (max-width: 480px) {
@@ -141,6 +221,16 @@
 
   .metric {
     min-height: 6.5rem;
+  }
+
+  .filter-heading,
+  .section-heading {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .section-heading .muted {
+    text-align: left;
   }
 }
 

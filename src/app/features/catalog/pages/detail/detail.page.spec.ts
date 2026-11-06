@@ -4,7 +4,7 @@ import { registerLocaleData } from '@angular/common';
 import localePt from '@angular/common/locales/pt';
 import { DetailPageComponent } from './detail.page';
 import { MANGA_REPOSITORY } from '../../../../core/data/manga.repository';
-import type { MangaRepository } from '../../../../core/data/manga.repository';
+import type { MangaRepository } from '../../../../core/models/manga-repository.model';
 import type { Manga } from '../../models/manga.model';
 
 describe('DetailPageComponent', () => {

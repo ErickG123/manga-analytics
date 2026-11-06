@@ -3,17 +3,7 @@ import type { SelectQueryBuilder } from 'typeorm';
 import { AppDataSource } from '../../config/data-source.js';
 import { PriceObservation, Volume } from '../../entities/index.js';
 import { serializeCsv } from './csv.utils.js';
-
-interface ReportFilters {
-  format?: string;
-  yearFrom?: string;
-  yearTo?: string;
-  publisherId?: string;
-  category?: string;
-  status?: string;
-  hasPrice?: string;
-  manga?: string;
-}
+import type { ReportFilters } from './models/report-filter.model.js';
 
 function applyFilters(
   qb: SelectQueryBuilder<Volume>,
@@ -119,19 +109,7 @@ export async function registerReportsRoutes(app: FastifyInstance) {
       .addSelect('observation.observedAt', 'observedAt')
       .addSelect('observation.sourceId', 'fonte')
       .orderBy('observation.observedAt', 'DESC');
-    if (filters.yearFrom)
-      qb.andWhere('EXTRACT(YEAR FROM observation."observedAt") >= :yearFrom', {
-        yearFrom: Number(filters.yearFrom),
-      });
-    if (filters.yearTo)
-      qb.andWhere('EXTRACT(YEAR FROM observation."observedAt") <= :yearTo', {
-        yearTo: Number(filters.yearTo),
-      });
-    if (filters.publisherId)
-      qb.andWhere('edition."publisherId" = :publisherId', { publisherId: filters.publisherId });
-    if (filters.category) qb.andWhere('manga.category = :category', { category: filters.category });
-    if (filters.status) qb.andWhere('volume."releaseStatus" = :status', { status: filters.status });
-    if (filters.manga) qb.andWhere('manga.title ILIKE :manga', { manga: `%${filters.manga}%` });
+    applyFilters(qb, filters);
     if (filters.hasPrice === 'false') qb.andWhere('1 = 0');
     const raw = await qb.getRawMany<Record<string, string>>();
     const rows = raw.map((row) => [

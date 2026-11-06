@@ -246,7 +246,53 @@ describe('Fastify REST API', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
+    const body = JSON.parse(res.body) as {
+      year: number;
+      averagePrice: number | null;
+      medianPrice: number | null;
+      sampleSize: number;
+      volumesCount: number;
+    }[];
     expect(Array.isArray(body)).toBe(true);
+    if (body.length > 0) {
+      expect(body[0]).toHaveProperty('averagePrice');
+      expect(body[0]).toHaveProperty('medianPrice');
+      expect(body[0].sampleSize).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('GET /api/v1/analytics/releases/by-publisher-month deve agregar séries com os filtros', async () => {
+    const publishersResponse = await app.inject({ method: 'GET', url: '/api/v1/publishers' });
+    const publishers = JSON.parse(publishersResponse.body) as { id: string }[];
+    expect(publishers.length).toBeGreaterThan(0);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/analytics/releases/by-publisher-month?yearFrom=2022&yearTo=2026&publisherId=${publishers[0].id}`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const rows = JSON.parse(res.body) as {
+      publisherId: string;
+      publisher: string;
+      year: number;
+      month: number;
+      count: number;
+    }[];
+    expect(Array.isArray(rows)).toBe(true);
+    if (rows.length > 0) {
+      expect(rows[0].publisherId).toBe(publishers[0].id);
+      expect(rows[0].month).toBeGreaterThanOrEqual(1);
+      expect(rows[0].month).toBeLessThanOrEqual(12);
+      expect(rows[0].count).toBeGreaterThan(0);
+    }
+  });
+
+  it('GET /api/v1/analytics/releases/by-publisher-month deve limitar períodos longos', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/analytics/releases/by-publisher-month?yearFrom=2000&yearTo=2020',
+    });
+
+    expect(res.statusCode).toBe(400);
   });
 });

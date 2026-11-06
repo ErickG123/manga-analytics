@@ -62,3 +62,19 @@ export interface PriceBand {
   band: string;
   count: number;
 }
+
+export interface PriceByYear {
+  year: number;
+  averagePrice: number | null;
+  medianPrice: number | null;
+  sampleSize: number;
+  volumesCount: number;
+}
+
+export interface PublisherReleaseMonth {
+  publisherId: string;
+  publisher: string;
+  year: number;
+  month: number;
+  count: number;
+}

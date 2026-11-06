@@ -27,3 +27,13 @@ export interface ReleaseMonthAggregateDto {
   label: string;
   count: number;
 }
+
+export interface AnalyticsFilters {
+  yearFrom?: string;
+  yearTo?: string;
+  publisherId?: string;
+  category?: string;
+  status?: string;
+  hasPrice?: string;
+  manga?: string;
+}
