@@ -7,4 +7,4 @@
 - [x] Mostrar R$ 0,00 como marcador identificado, sem criar preço falso no banco.
 - [x] Cobrir comportamento com testes de parser, serviço, API e tela.
 - [x] Executar validação completa.
-- [ ] Reprocessar catálogo com a versão corrigida e revisar novos erros.
+- [x] Reprocessar catálogo com a versão corrigida e revisar novos erros; não ocorreram erros técnicos/HTTP, 107 fichas seguiram em revisão por ausência de tabela ou linhas ambíguas.
