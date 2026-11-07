@@ -45,6 +45,10 @@ describe('AnalyticsPageComponent', () => {
             getPricesByYear: async () => [],
             getPriceBands: async () => [],
             getEditionsByFormat: async () => [],
+            getPricesByFormat: async () => [],
+            getPricesByPage: async () => [],
+            getObservedPricesByMonth: async () => [],
+            getComparableEditionPrices: async () => [],
             downloadReleasesCsvUrl: () => '/reports/releases?format=csv',
             downloadPricesCsvUrl: () => '/reports/prices?format=csv',
           },
@@ -103,7 +107,7 @@ describe('AnalyticsPageComponent', () => {
     const buttons = fixture.nativeElement.querySelectorAll(
       'button[aria-label="Exportar gráfico como imagem"]',
     ) as NodeListOf<HTMLButtonElement>;
-    expect(buttons.length).toBe(8);
+    expect(buttons.length).toBe(10);
     fixture.destroy();
   });
 

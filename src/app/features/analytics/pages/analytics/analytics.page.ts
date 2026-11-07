@@ -23,10 +23,14 @@ import { AnalyticsService } from '../../services/analytics.service';
 import type {
   AnalyticsFilters,
   AnalyticsOverview,
+  ComparableEditionPrice,
   EditionsByFormat,
+  ObservedPriceMonth,
   PriceBand,
   PriceByManga,
   PriceByPublisher,
+  PriceByFormat,
+  PricePerPagePublisher,
   PriceByYear,
   PublisherReleaseMonth,
   ReleaseYearRange,
@@ -83,6 +87,10 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
 
   readonly overview = signal<AnalyticsOverview>(EMPTY_OVERVIEW);
   readonly pricesByPublisher = signal<PriceByPublisher[]>([]);
+  readonly pricesByFormat = signal<PriceByFormat[]>([]);
+  readonly pricesByPage = signal<PricePerPagePublisher[]>([]);
+  readonly observedPricesByMonth = signal<ObservedPriceMonth[]>([]);
+  readonly comparableEditionPrices = signal<ComparableEditionPrice[]>([]);
   readonly pricesByManga = signal<PriceByManga[]>([]);
   readonly pricesByYear = signal<PriceByYear[]>([]);
   readonly releasesByMonth = signal<ReleasesByMonth[]>([]);
@@ -156,6 +164,12 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
 
   readonly hasPublisherPrices = computed(() =>
     this.topPublishers().some((publisher) => publisher.averagePrice !== null),
+  );
+
+  readonly publishersByPagePrice = computed(() =>
+    [...this.pricesByPage()]
+      .filter((row) => row.averagePricePerPage !== null)
+      .sort((left, right) => (left.averagePricePerPage ?? 0) - (right.averagePricePerPage ?? 0)),
   );
 
   readonly hasMonthlyReleases = computed(() =>
@@ -232,6 +246,8 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     viewChild<ElementRef<HTMLDivElement>>('publisherTimelineChart');
   readonly priceYearChartEl = viewChild<ElementRef<HTMLDivElement>>('priceYearChart');
   readonly formatChartEl = viewChild<ElementRef<HTMLDivElement>>('formatChart');
+  readonly pagePriceChartEl = viewChild<ElementRef<HTMLDivElement>>('pagePriceChart');
+  readonly observedPriceChartEl = viewChild<ElementRef<HTMLDivElement>>('observedPriceChart');
 
   ngOnInit(): void {
     void this.initializeFilters();
@@ -275,6 +291,8 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       'edition-formats': this.formatChartEl(),
       'prices-year': this.priceYearChartEl(),
       'price-bands': this.bandsChartEl(),
+      'price-per-page': this.pagePriceChartEl(),
+      'observed-prices': this.observedPriceChartEl(),
     };
     const element = chartElements[chartId]?.nativeElement;
     const chart = element ? echarts.getInstanceByDom(element) : undefined;
@@ -321,6 +339,10 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
         pricesYear,
         bands,
         formats,
+        pricesByFormat,
+        pricesByPage,
+        observedPrices,
+        comparablePrices,
       ] = await Promise.all([
         this.analyticsService.getOverview(filters),
         this.analyticsService.getPricesByPublisher(filters),
@@ -331,6 +353,10 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
         this.analyticsService.getPricesByYear(filters),
         this.analyticsService.getPriceBands(filters),
         this.analyticsService.getEditionsByFormat(filters),
+        this.analyticsService.getPricesByFormat(filters),
+        this.analyticsService.getPricesByPage(filters),
+        this.analyticsService.getObservedPricesByMonth(filters),
+        this.analyticsService.getComparableEditionPrices(filters),
       ]);
       if (requestId !== this.requestId) return;
       this.overview.set(overview);
@@ -342,6 +368,10 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       this.pricesByYear.set(pricesYear);
       this.priceBands.set(bands);
       this.editionsByFormat.set(formats);
+      this.pricesByFormat.set(pricesByFormat);
+      this.pricesByPage.set(pricesByPage);
+      this.observedPricesByMonth.set(observedPrices);
+      this.comparableEditionPrices.set(comparablePrices);
       this.chartTimer = setTimeout(() => this.renderCharts(), 0);
     } catch {
       if (requestId !== this.requestId) return;
@@ -355,6 +385,10 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       this.pricesByYear.set([]);
       this.priceBands.set([]);
       this.editionsByFormat.set([]);
+      this.pricesByFormat.set([]);
+      this.pricesByPage.set([]);
+      this.observedPricesByMonth.set([]);
+      this.comparableEditionPrices.set([]);
       this.chartTimer = setTimeout(() => this.renderCharts(), 0);
     } finally {
       if (requestId === this.requestId) this.loading.set(false);
@@ -458,6 +492,125 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     this.renderPublisherTimeline();
     this.renderYearlyPrices();
     this.renderFormatChart();
+    this.renderPagePriceChart();
+    this.renderObservedPriceChart();
+  }
+
+  private renderPagePriceChart(): void {
+    const rows = this.publishersByPagePrice().slice(0, 12);
+    const el = this.pagePriceChartEl()?.nativeElement;
+    if (!el || !rows.length) return;
+    this.observeChartSize(el);
+    const chart = echarts.init(el);
+    this.charts.push(chart);
+    chart.setOption({
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        backgroundColor: '#20212b',
+        borderColor: '#424451',
+        textStyle: { color: '#f4f4f6' },
+        formatter: (params: unknown) => {
+          const item = (params as { dataIndex: number }[])[0];
+          const row = rows[item?.dataIndex ?? 0];
+          return row
+            ? `${row.publisher}<br/>${this.formatChartValue(row.averagePricePerPage, 'currency')} por página<br/>Amostra: ${row.pricedVolumes} volumes; páginas conhecidas em ${row.volumesWithPageCount} de ${row.volumesCount}`
+            : '';
+        },
+      },
+      grid: { left: 16, right: 24, bottom: 20, top: 18, containLabel: true },
+      xAxis: {
+        type: 'value',
+        axisLabel: {
+          color: '#aaa',
+          formatter: (value: number) => this.formatChartValue(value, 'currency'),
+        },
+        splitLine: { lineStyle: { color: '#252632' } },
+      },
+      yAxis: {
+        type: 'category',
+        data: rows.map((row) => row.publisher),
+        axisLabel: { color: '#aaa', width: 120, overflow: 'truncate' },
+      },
+      series: [
+        {
+          name: 'Preço por página',
+          type: 'bar',
+          data: rows.map((row) => row.averagePricePerPage),
+          itemStyle: { color: '#ef737b', borderRadius: [0, 4, 4, 0] },
+        },
+      ],
+    });
+  }
+
+  private renderObservedPriceChart(): void {
+    const rows = this.observedPricesByMonth();
+    const el = this.observedPriceChartEl()?.nativeElement;
+    if (!el || !rows.length) return;
+    this.observeChartSize(el);
+    const chart = echarts.init(el);
+    this.charts.push(chart);
+    chart.setOption({
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#20212b',
+        borderColor: '#424451',
+        textStyle: { color: '#f4f4f6' },
+        formatter: (params: unknown) => {
+          const items = params as { seriesName: string; value: number | null; dataIndex: number }[];
+          const row = rows[items[0]?.dataIndex ?? 0];
+          return row
+            ? `<strong>${row.label}</strong><br/>Observações: ${row.observationsCount}<br/>Variações registradas: ${row.changesCount} (${row.increasesCount} aumentos, ${row.decreasesCount} reduções)<br/>Preço médio observado: ${row.averageObservedPrice === null ? 'Sem dados' : this.formatChartValue(row.averageObservedPrice, 'currency')}<br/>Variação média entre observações: ${row.averageChangePercent === null ? 'Sem dados' : `${row.averageChangePercent.toLocaleString('pt-BR')}%`}`
+            : '';
+        },
+      },
+      legend: { textStyle: { color: '#bbb' } },
+      grid: { left: 16, right: 24, bottom: 55, top: 36, containLabel: true },
+      xAxis: {
+        type: 'category',
+        data: rows.map((row) => row.label),
+        axisLabel: { color: '#aaa', rotate: rows.length > 18 ? 45 : 0 },
+      },
+      yAxis: [
+        {
+          type: 'value',
+          name: 'Preço médio',
+          axisLabel: {
+            color: '#aaa',
+            formatter: (value: number) => this.formatChartValue(value, 'currency'),
+          },
+          splitLine: { lineStyle: { color: '#252632' } },
+        },
+        {
+          type: 'value',
+          name: 'Variações',
+          minInterval: 1,
+          axisLabel: { color: '#aaa' },
+          splitLine: { show: false },
+        },
+      ],
+      dataZoom:
+        rows.length > 24 ? [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 8 }] : [],
+      series: [
+        {
+          name: 'Preço médio observado',
+          type: 'line',
+          data: rows.map((row) => row.averageObservedPrice),
+          showSymbol: false,
+          connectNulls: false,
+          lineStyle: { color: '#ef737b', width: 2.5 },
+        },
+        {
+          name: 'Variações registradas',
+          type: 'bar',
+          yAxisIndex: 1,
+          data: rows.map((row) => row.changesCount),
+          itemStyle: { color: '#38bdf8', opacity: 0.72 },
+        },
+      ],
+    });
   }
 
   private renderPublisherPricesChart(): void {

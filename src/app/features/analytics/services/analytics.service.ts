@@ -5,10 +5,14 @@ import { environment } from '../../../../environments/environment';
 import type {
   AnalyticsFilters,
   AnalyticsOverview,
+  ComparableEditionPrice,
   EditionsByFormat,
+  ObservedPriceMonth,
   PriceBand,
+  PriceByFormat,
   PriceByManga,
   PriceByPublisher,
+  PricePerPagePublisher,
   PriceByYear,
   PublisherReleaseMonth,
   ReleaseYearRange,
@@ -85,6 +89,40 @@ export class AnalyticsService {
       this.http.get<PriceByPublisher[]>(`${this.baseUrl}/analytics/prices/by-publisher`, {
         params: this.toParams(filters),
       }),
+    );
+  }
+
+  async getPricesByFormat(filters?: AnalyticsFilters): Promise<PriceByFormat[]> {
+    return await firstValueFrom(
+      this.http.get<PriceByFormat[]>(`${this.baseUrl}/analytics/prices/by-format`, {
+        params: this.toParams(filters),
+      }),
+    );
+  }
+
+  async getPricesByPage(filters?: AnalyticsFilters): Promise<PricePerPagePublisher[]> {
+    return await firstValueFrom(
+      this.http.get<PricePerPagePublisher[]>(`${this.baseUrl}/analytics/prices/by-page`, {
+        params: this.toParams(filters),
+      }),
+    );
+  }
+
+  async getObservedPricesByMonth(filters?: AnalyticsFilters): Promise<ObservedPriceMonth[]> {
+    return await firstValueFrom(
+      this.http.get<ObservedPriceMonth[]>(`${this.baseUrl}/analytics/prices/observed-by-month`, {
+        params: this.toParams(filters),
+      }),
+    );
+  }
+
+  async getComparableEditionPrices(filters?: AnalyticsFilters): Promise<ComparableEditionPrice[]> {
+    if (!filters?.manga?.trim()) return [];
+    return await firstValueFrom(
+      this.http.get<ComparableEditionPrice[]>(
+        `${this.baseUrl}/analytics/prices/comparable-editions`,
+        { params: this.toParams(filters) },
+      ),
     );
   }
 

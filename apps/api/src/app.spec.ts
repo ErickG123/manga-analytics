@@ -375,6 +375,65 @@ describe('Fastify REST API', () => {
     ).toBe(true);
   });
 
+  it('GET /api/v1/analytics/prices/by-format deve expor amostras e dispersão', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/analytics/prices/by-format' });
+    expect(res.statusCode).toBe(200);
+    const rows = JSON.parse(res.body) as {
+      formatType: string;
+      averagePrice: number | null;
+      medianPrice: number | null;
+      lowerQuartilePrice: number | null;
+      upperQuartilePrice: number | null;
+      normalizedSampleSize: number;
+    }[];
+    expect(Array.isArray(rows)).toBe(true);
+    expect(rows.every((row) => row.normalizedSampleSize >= 0)).toBe(true);
+  });
+
+  it('GET /api/v1/analytics/prices/by-page deve informar cobertura de páginas', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/analytics/prices/by-page' });
+    expect(res.statusCode).toBe(200);
+    const rows = JSON.parse(res.body) as {
+      publisher: string;
+      averagePricePerPage: number | null;
+      volumesWithPageCount: number;
+      volumesCount: number;
+      pageCoverage: number | null;
+    }[];
+    expect(Array.isArray(rows)).toBe(true);
+    expect(rows.every((row) => row.volumesWithPageCount <= row.volumesCount)).toBe(true);
+  });
+
+  it('GET /api/v1/analytics/prices/observed-by-month deve separar observações e mudanças', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/analytics/prices/observed-by-month?yearFrom=2022&yearTo=2026',
+    });
+    expect(res.statusCode).toBe(200);
+    const rows = JSON.parse(res.body) as {
+      year: number;
+      month: number;
+      observationsCount: number;
+      changesCount: number;
+      increasesCount: number;
+      decreasesCount: number;
+    }[];
+    expect(Array.isArray(rows)).toBe(true);
+    expect(rows.every((row) => row.month >= 1 && row.month <= 12)).toBe(true);
+    expect(rows.every((row) => row.changesCount <= row.observationsCount)).toBe(true);
+  });
+
+  it('GET /api/v1/analytics/prices/comparable-editions requer uma busca por obra', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/analytics/prices/comparable-editions?manga=Blue%20Lock',
+    });
+    expect(res.statusCode).toBe(200);
+    const rows = JSON.parse(res.body) as { manga: string; comparableEditions: number }[];
+    expect(Array.isArray(rows)).toBe(true);
+    expect(rows.every((row) => row.comparableEditions > 1)).toBe(true);
+  });
+
   it('GET /api/v1/analytics/releases/by-publisher-month deve agregar séries com os filtros', async () => {
     const publishersResponse = await app.inject({ method: 'GET', url: '/api/v1/publishers' });
     const publishers = JSON.parse(publishersResponse.body) as { id: string }[];

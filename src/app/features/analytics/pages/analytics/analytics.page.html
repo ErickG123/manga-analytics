@@ -356,6 +356,8 @@
                   <th>Com preço</th>
                   <th>Cobertura</th>
                   <th>Preço médio</th>
+                  <th>Mediana</th>
+                  <th>Faixa central (Q1–Q3)</th>
                 </tr>
               </thead>
               <tbody>
@@ -378,6 +380,20 @@
                           ? 'Sem amostra'
                           : (publisher.averagePrice
                             | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
+                      }}
+                    </td>
+                    <td>
+                      {{ publisher.medianPrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR' }}
+                    </td>
+                    <td>
+                      {{
+                        publisher.lowerQuartilePrice
+                          | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
+                      }}
+                      –
+                      {{
+                        publisher.upperQuartilePrice
+                          | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
                       }}
                     </td>
                   </tr>
@@ -673,6 +689,260 @@
           <p class="empty-state">Não há publicações para esses filtros.</p>
         }
       </article>
+    </div>
+  </section>
+
+  <section class="analytics-section" aria-labelledby="price-depth-title">
+    <div class="section-heading">
+      <div>
+        <div class="eyebrow">COMPARABILIDADE DE PREÇOS</div>
+        <h2 id="price-depth-title">Formato, páginas e variações observadas</h2>
+      </div>
+      <p class="muted">
+        Métricas com amostra e cobertura explícitas; campos ausentes não são estimados.
+      </p>
+    </div>
+    <div class="chart-grid">
+      <article class="panel panel-wide">
+        <h3>Preço por formato editorial</h3>
+        <p class="muted">
+          Preço de capa por volume físico. A normalização por conteúdo só aparece quando o número de
+          volumes reunidos é conhecido.
+        </p>
+        @if (pricesByFormat().length) {
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Formato</th>
+                  <th>Publicações</th>
+                  <th>Volumes com preço</th>
+                  <th>Cobertura</th>
+                  <th>Média</th>
+                  <th>Mediana</th>
+                  <th>Q1–Q3</th>
+                  <th>Preço por volume-fonte</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of pricesByFormat(); track row.formatType) {
+                  <tr>
+                    <td>{{ row.label }}</td>
+                    <td>{{ row.editionsCount | number: '1.0-0' : 'pt-BR' }}</td>
+                    <td>
+                      {{ row.pricedVolumes | number: '1.0-0' : 'pt-BR' }} /
+                      {{ row.volumesCount | number: '1.0-0' : 'pt-BR' }}
+                    </td>
+                    <td>
+                      {{
+                        row.priceCoverage === null
+                          ? 'Sem amostra'
+                          : (row.priceCoverage | percent: '1.0-1' : 'pt-BR')
+                      }}
+                    </td>
+                    <td>
+                      {{
+                        row.averagePrice === null
+                          ? 'Sem amostra'
+                          : (row.averagePrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
+                      }}
+                    </td>
+                    <td>
+                      {{
+                        row.medianPrice === null
+                          ? 'Sem amostra'
+                          : (row.medianPrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
+                      }}
+                    </td>
+                    <td>
+                      {{
+                        row.lowerQuartilePrice === null || row.upperQuartilePrice === null
+                          ? 'Sem amostra'
+                          : (row.lowerQuartilePrice
+                              | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR') +
+                            ' – ' +
+                            (row.upperQuartilePrice
+                              | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
+                      }}
+                    </td>
+                    <td>
+                      {{
+                        row.normalizedAveragePrice === null
+                          ? 'Não normalizável'
+                          : (row.normalizedAveragePrice
+                              | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR') +
+                            ' · n=' +
+                            row.normalizedSampleSize
+                      }}
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          <small class="muted"
+            >“Volume convencional” é o agrupamento visual dos registros sem evidência de compilação;
+            não confirma formato físico quando a fonte não o informa.</small
+          >
+        } @else {
+          <p class="empty-state">Sem dados para este filtro.</p>
+        }
+      </article>
+
+      <article
+        class="panel panel-wide"
+        [class.chart-fullscreen]="fullscreenChart() === 'price-per-page'"
+      >
+        <div class="panel-heading">
+          <div>
+            <h3>Preço médio por página e editora</h3>
+            <p class="muted">
+              Inclui somente volumes com preço e contagem de páginas acima de 20. Cobertura informa
+              quantos volumes têm páginas cadastradas.
+            </p>
+          </div>
+          <div class="chart-actions">
+            <p-button
+              icon="pi pi-download"
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Exportar gráfico como imagem"
+              (onClick)="exportChart('price-per-page')"
+            /><p-button
+              [icon]="
+                fullscreenChart() === 'price-per-page'
+                  ? 'pi pi-window-minimize'
+                  : 'pi pi-window-maximize'
+              "
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Alternar tela cheia"
+              (onClick)="toggleFullscreen('price-per-page')"
+            />
+          </div>
+        </div>
+        @if (publishersByPagePrice().length) {
+          <div
+            #pagePriceChart
+            class="chart chart-tall"
+            role="img"
+            aria-label="Preço médio por página por editora"
+          ></div>
+          <div class="chart-data-panel chart-data-panel-inline">
+            @for (row of publishersByPagePrice(); track row.publisherId) {
+              <div class="chart-data-row">
+                <span class="chart-data-label">{{ row.publisher }}</span
+                ><strong
+                  >{{ row.averagePricePerPage | currency: 'BRL' : 'symbol' : '1.3-3' : 'pt-BR' }} /
+                  pág.</strong
+                ><small
+                  >{{ row.volumesWithPageCount }} de {{ row.volumesCount }} com páginas · cobertura
+                  {{ row.pageCoverage | percent: '1.0-1' : 'pt-BR' }}</small
+                >
+              </div>
+            }
+          </div>
+        } @else {
+          <p class="empty-state">
+            Não há volumes suficientes com páginas e preço conhecidos para calcular esta métrica.
+          </p>
+        }
+      </article>
+
+      <article
+        class="panel panel-wide"
+        [class.chart-fullscreen]="fullscreenChart() === 'observed-prices'"
+      >
+        <div class="panel-heading">
+          <div>
+            <h3>Preços observados e variações registradas</h3>
+            <p class="muted">
+              A data indica quando o Collector leu o valor; não é a data oficial do reajuste. Uma
+              observação inicial não conta como variação.
+            </p>
+          </div>
+          <div class="chart-actions">
+            <p-button
+              icon="pi pi-download"
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Exportar gráfico como imagem"
+              (onClick)="exportChart('observed-prices')"
+            /><p-button
+              [icon]="
+                fullscreenChart() === 'observed-prices'
+                  ? 'pi pi-window-minimize'
+                  : 'pi pi-window-maximize'
+              "
+              [text]="true"
+              [rounded]="true"
+              ariaLabel="Alternar tela cheia"
+              (onClick)="toggleFullscreen('observed-prices')"
+            />
+          </div>
+        </div>
+        @if (observedPricesByMonth().length) {
+          <div
+            #observedPriceChart
+            class="chart chart-tall"
+            role="img"
+            aria-label="Média de preço e variações observadas por mês"
+          ></div>
+        } @else {
+          <p class="empty-state">Não há observações de preço no período filtrado.</p>
+        }
+      </article>
+
+      @if (manga().trim()) {
+        <article class="panel panel-wide">
+          <h3>Comparação de edições da obra</h3>
+          <p class="muted">
+            Mesmo número de volume não garante conteúdo equivalente. O preço por volume-fonte só é
+            exibido para formatos com unidade conhecida.
+          </p>
+          @if (comparableEditionPrices().length) {
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Obra / volume</th>
+                    <th>Editora</th>
+                    <th>Publicação</th>
+                    <th>Formato</th>
+                    <th>Preço observado</th>
+                    <th>Por volume-fonte</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (
+                    row of comparableEditionPrices();
+                    track row.editionId + ':' + row.volumeNumber
+                  ) {
+                    <tr>
+                      <td>{{ row.manga }} · #{{ row.volumeNumber }}</td>
+                      <td>{{ row.publisher }}</td>
+                      <td>{{ row.publication || 'Edição brasileira' }}</td>
+                      <td>{{ row.formatLabel }}</td>
+                      <td>{{ row.price | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR' }}</td>
+                      <td>
+                        {{
+                          row.normalizedPrice === null
+                            ? 'Não normalizável'
+                            : (row.normalizedPrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
+                        }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <p class="empty-state">
+              Nenhum par de edições com preço conhecido foi encontrado para a busca atual.
+            </p>
+          }
+        </article>
+      }
     </div>
   </section>
 

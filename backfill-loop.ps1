@@ -58,15 +58,21 @@ for ($lote = 1; $lote -le $maxLotes; $lote++) {
     )
 
     try {
-        $collectorArgs = @(
-            "backfill",
-            "--batch-size", "100",
-            "--resume",
-            "--metrics-json", $metricsPath
-        )
+        $collectorArgs = @("backfill", "--batch-size", "100")
         if ($ForceReparse) {
+            if ($lote -eq 1) {
+                Write-Host "Reiniciando o checkpoint na primeira página e reprocessando o catálogo. Os dados existentes serão preservados."
+                $collectorArgs += "--reset-checkpoint"
+            }
+            else {
+                $collectorArgs += "--resume"
+            }
             $collectorArgs += "--force-reparse"
         }
+        else {
+            $collectorArgs += "--resume"
+        }
+        $collectorArgs += @("--metrics-json", $metricsPath)
 
         $backfillOutput = & py -m collector.src.cli @collectorArgs 2>&1
         $backfillExitCode = $LASTEXITCODE

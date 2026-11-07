@@ -1,11 +1,17 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 import { AppDataSource } from '../../config/data-source.js';
-import { Edition, Volume } from '../../entities/index.js';
+import { Edition, PriceObservation, Volume } from '../../entities/index.js';
 import type { AnalyticsFilters } from './models/analytics.model.js';
 
 const currentPrice = `(SELECT p.amount::numeric FROM volume_prices p WHERE p."volumeId" = v.id ORDER BY p."observedAt" DESC NULLS LAST, p."createdAt" DESC LIMIT 1)`;
 const hasCurrentPrice = `EXISTS (SELECT 1 FROM volume_prices p WHERE p."volumeId" = v.id)`;
+const sourceVolumeUnit = `CASE
+  WHEN e."formatType" = 'regular' THEN 1
+  WHEN e."formatType" IN ('two_in_one', 'three_in_one') AND e."volumesPerBook" >= 2
+    THEN e."volumesPerBook"
+  ELSE NULL
+END`;
 const priceBandOrder = ['0–19,99', '20–39,99', '40–59,99', '60–99,99', '100+'];
 
 function applyFilters<T extends ObjectLiteral>(
@@ -149,6 +155,18 @@ export async function registerAnalyticsRoutes(app: FastifyInstance) {
         .addSelect('COUNT(DISTINCT m.id)', 'mangaCount')
         .addSelect(`COUNT(DISTINCT v.id) FILTER (WHERE ${hasCurrentPrice})`, 'pricedVolumes')
         .addSelect(`AVG(${currentPrice}) FILTER (WHERE ${hasCurrentPrice})`, 'averagePrice')
+        .addSelect(
+          `percentile_cont(0.5) WITHIN GROUP (ORDER BY ${currentPrice}) FILTER (WHERE ${hasCurrentPrice})`,
+          'medianPrice',
+        )
+        .addSelect(
+          `percentile_cont(0.25) WITHIN GROUP (ORDER BY ${currentPrice}) FILTER (WHERE ${hasCurrentPrice})`,
+          'lowerQuartilePrice',
+        )
+        .addSelect(
+          `percentile_cont(0.75) WITHIN GROUP (ORDER BY ${currentPrice}) FILTER (WHERE ${hasCurrentPrice})`,
+          'upperQuartilePrice',
+        )
         .groupBy('pub.id')
         .addGroupBy('pub.name')
         .addGroupBy('pub.slug')
@@ -168,12 +186,84 @@ export async function registerAnalyticsRoutes(app: FastifyInstance) {
             pricedVolumes,
             priceCoverage: volumesCount ? pricedVolumes / volumesCount : null,
             averagePrice: round(row.averagePrice === null ? null : Number(row.averagePrice)),
+            medianPrice: round(row.medianPrice === null ? null : Number(row.medianPrice)),
+            lowerQuartilePrice: round(
+              row.lowerQuartilePrice === null ? null : Number(row.lowerQuartilePrice),
+            ),
+            upperQuartilePrice: round(
+              row.upperQuartilePrice === null ? null : Number(row.upperQuartilePrice),
+            ),
             sampleSize: pricedVolumes,
           };
         }),
       );
     },
   );
+
+  app.get('/api/v1/analytics/prices/by-format', async (req, reply) => {
+    const qb = AppDataSource.getRepository(Edition)
+      .createQueryBuilder('e')
+      .innerJoin('e.manga', 'm')
+      .innerJoin('e.publisher', 'pub')
+      .leftJoin('e.volumes', 'v')
+      .select('e."formatType"', 'formatType')
+      .addSelect('COUNT(DISTINCT e.id)', 'editionsCount')
+      .addSelect('COUNT(DISTINCT m.id)', 'mangaCount')
+      .addSelect('COUNT(DISTINCT v.id)', 'volumesCount')
+      .addSelect(`COUNT(DISTINCT v.id) FILTER (WHERE ${hasCurrentPrice})`, 'pricedVolumes')
+      .addSelect(`AVG(${currentPrice}) FILTER (WHERE ${hasCurrentPrice})`, 'averagePrice')
+      .addSelect(
+        `percentile_cont(0.5) WITHIN GROUP (ORDER BY ${currentPrice}) FILTER (WHERE ${hasCurrentPrice})`,
+        'medianPrice',
+      )
+      .addSelect(
+        `percentile_cont(0.25) WITHIN GROUP (ORDER BY ${currentPrice}) FILTER (WHERE ${hasCurrentPrice})`,
+        'lowerQuartilePrice',
+      )
+      .addSelect(
+        `percentile_cont(0.75) WITHIN GROUP (ORDER BY ${currentPrice}) FILTER (WHERE ${hasCurrentPrice})`,
+        'upperQuartilePrice',
+      )
+      .addSelect(
+        `AVG(${currentPrice} / (${sourceVolumeUnit})) FILTER (WHERE ${hasCurrentPrice} AND (${sourceVolumeUnit}) IS NOT NULL)`,
+        'normalizedAveragePrice',
+      )
+      .addSelect(
+        `COUNT(DISTINCT v.id) FILTER (WHERE ${hasCurrentPrice} AND (${sourceVolumeUnit}) IS NOT NULL)`,
+        'normalizedSampleSize',
+      )
+      .groupBy('e."formatType"')
+      .orderBy('e."formatType"', 'ASC');
+    applyFilters(qb, req.query as AnalyticsFilters);
+    const rows = await qb.getRawMany<Record<string, string | null>>();
+    return reply.send(
+      rows.map((row) => {
+        const volumesCount = Number(row.volumesCount);
+        const pricedVolumes = Number(row.pricedVolumes);
+        return {
+          formatType: row.formatType,
+          label: formatLabels[row.formatType ?? ''] ?? formatLabels['unknown'],
+          editionsCount: Number(row.editionsCount),
+          mangaCount: Number(row.mangaCount),
+          volumesCount,
+          pricedVolumes,
+          priceCoverage: volumesCount ? pricedVolumes / volumesCount : null,
+          averagePrice: round(row.averagePrice === null ? null : Number(row.averagePrice)),
+          medianPrice: round(row.medianPrice === null ? null : Number(row.medianPrice)),
+          lowerQuartilePrice: round(
+            row.lowerQuartilePrice === null ? null : Number(row.lowerQuartilePrice),
+          ),
+          upperQuartilePrice: round(
+            row.upperQuartilePrice === null ? null : Number(row.upperQuartilePrice),
+          ),
+          normalizedAveragePrice: round(
+            row.normalizedAveragePrice === null ? null : Number(row.normalizedAveragePrice),
+          ),
+          normalizedSampleSize: Number(row.normalizedSampleSize),
+        };
+      }),
+    );
+  });
 
   app.get('/api/v1/analytics/prices/by-manga', async (req: FastifyRequest, reply: FastifyReply) => {
     const filters = req.query as AnalyticsFilters;
@@ -237,27 +327,158 @@ export async function registerAnalyticsRoutes(app: FastifyInstance) {
 
   app.get('/api/v1/analytics/prices/by-page', async (req: FastifyRequest, reply: FastifyReply) => {
     const qb = baseQuery()
-      .select('pub.name', 'publisher')
+      .select('pub.id', 'publisherId')
+      .addSelect('pub.name', 'publisher')
       .addSelect(
-        `AVG(${currentPrice} / v."pageCount") FILTER (WHERE ${hasCurrentPrice})`,
+        `AVG(${currentPrice} / v."pageCount") FILTER (WHERE ${hasCurrentPrice} AND v."pageCount" > 20)`,
         'avgPricePerPage',
       )
-      .addSelect('AVG(v."pageCount")', 'avgPages')
-      .addSelect(`COUNT(DISTINCT v.id) FILTER (WHERE ${hasCurrentPrice})`, 'sampleSize')
-      .where('v."pageCount" IS NOT NULL AND v."pageCount" > 20')
+      .addSelect('AVG(v."pageCount") FILTER (WHERE v."pageCount" > 20)', 'avgPages')
+      .addSelect(
+        `COUNT(DISTINCT v.id) FILTER (WHERE ${hasCurrentPrice} AND v."pageCount" > 20)`,
+        'pricedVolumes',
+      )
+      .addSelect('COUNT(DISTINCT v.id) FILTER (WHERE v."pageCount" > 20)', 'volumesWithPageCount')
+      .addSelect('COUNT(DISTINCT v.id)', 'volumesCount')
       .groupBy('pub.name')
+      .addGroupBy('pub.id')
       .orderBy('pub.name', 'ASC');
     applyFilters(qb, req.query as AnalyticsFilters);
     const rows = await qb.getRawMany<Record<string, string | null>>();
     return reply.send(
       rows.map((row) => ({
         publisher: row.publisher,
+        publisherId: row.publisherId,
         avgPricePerPage: round(
           row.avgPricePerPage === null ? null : Number(row.avgPricePerPage),
           3,
         ),
-        avgPages: Math.round(Number(row.avgPages)),
-        sampleSize: Number(row.sampleSize),
+        avgPages: row.avgPages === null ? null : Math.round(Number(row.avgPages)),
+        pricedVolumes: Number(row.pricedVolumes),
+        volumesWithPageCount: Number(row.volumesWithPageCount),
+        volumesCount: Number(row.volumesCount),
+        pageCoverage: Number(row.volumesCount)
+          ? Number(row.volumesWithPageCount) / Number(row.volumesCount)
+          : null,
+      })),
+    );
+  });
+
+  app.get('/api/v1/analytics/prices/observed-by-month', async (req, reply) => {
+    const filters = { ...(req.query as AnalyticsFilters) };
+    delete filters.hasPrice;
+    const observations = AppDataSource.getRepository(PriceObservation)
+      .createQueryBuilder('obs')
+      .innerJoin('obs.volume', 'v')
+      .innerJoin('v.edition', 'e')
+      .innerJoin('e.manga', 'm')
+      .innerJoin('e.publisher', 'pub')
+      .select(`EXTRACT(YEAR FROM obs."observedAt" AT TIME ZONE 'America/Sao_Paulo')::int`, 'year')
+      .addSelect(
+        `EXTRACT(MONTH FROM obs."observedAt" AT TIME ZONE 'America/Sao_Paulo')::int`,
+        'month',
+      )
+      .addSelect('obs.amount::numeric', 'amount')
+      .addSelect(
+        'LAG(obs.amount::numeric) OVER (PARTITION BY obs."volumeId", obs."variantId", obs."sourceId" ORDER BY obs."observedAt", obs."createdAt")',
+        'previousAmount',
+      )
+      .addSelect('obs."observedAt"', 'observedAt');
+    applyFilters(observations, filters);
+
+    const history = AppDataSource.createQueryBuilder()
+      .select('events.year', 'year')
+      .addSelect('events.month', 'month')
+      .addSelect('COUNT(*)', 'observationsCount')
+      .addSelect('COUNT(*) FILTER (WHERE events."previousAmount" IS NOT NULL)', 'changesCount')
+      .addSelect(
+        'COUNT(*) FILTER (WHERE events."previousAmount" IS NOT NULL AND events.amount > events."previousAmount")',
+        'increasesCount',
+      )
+      .addSelect(
+        'COUNT(*) FILTER (WHERE events."previousAmount" IS NOT NULL AND events.amount < events."previousAmount")',
+        'decreasesCount',
+      )
+      .addSelect('AVG(events.amount)', 'averageObservedPrice')
+      .addSelect(
+        'AVG((events.amount - events."previousAmount") * 100 / NULLIF(events."previousAmount", 0)) FILTER (WHERE events."previousAmount" IS NOT NULL)',
+        'averageChangePercent',
+      )
+      .from(`(${observations.getQuery()})`, 'events')
+      .setParameters(observations.getParameters())
+      .groupBy('events.year')
+      .addGroupBy('events.month')
+      .orderBy('events.year', 'ASC')
+      .addOrderBy('events.month', 'ASC');
+    const rows = await history.getRawMany<Record<string, string | null>>();
+    return reply.send(
+      rows.map((row) => ({
+        year: Number(row.year),
+        month: Number(row.month),
+        label: `${String(Number(row.month)).padStart(2, '0')}/${row.year}`,
+        observationsCount: Number(row.observationsCount),
+        changesCount: Number(row.changesCount),
+        increasesCount: Number(row.increasesCount),
+        decreasesCount: Number(row.decreasesCount),
+        averageObservedPrice: round(
+          row.averageObservedPrice === null ? null : Number(row.averageObservedPrice),
+        ),
+        averageChangePercent: round(
+          row.averageChangePercent === null ? null : Number(row.averageChangePercent),
+        ),
+      })),
+    );
+  });
+
+  app.get('/api/v1/analytics/prices/comparable-editions', async (req, reply) => {
+    const filters = { ...(req.query as AnalyticsFilters) };
+    delete filters.publisherId;
+    delete filters.formatType;
+    delete filters.hasPrice;
+    const candidates = baseQuery()
+      .select('m.id', 'mangaId')
+      .addSelect('m.title', 'manga')
+      .addSelect('v.number', 'volumeNumber')
+      .addSelect('e.id', 'editionId')
+      .addSelect('e.name', 'publication')
+      .addSelect('pub.name', 'publisher')
+      .addSelect('e."formatType"', 'formatType')
+      .addSelect('e."volumesPerBook"', 'volumesPerBook')
+      .addSelect(currentPrice, 'price')
+      .addSelect(
+        `CASE WHEN (${sourceVolumeUnit}) IS NOT NULL THEN ${currentPrice} / (${sourceVolumeUnit}) ELSE NULL END`,
+        'normalizedPrice',
+      )
+      .addSelect('COUNT(*) OVER (PARTITION BY m.id, v.number)', 'comparableEditions')
+      .where(hasCurrentPrice)
+      .orderBy('m.title', 'ASC')
+      .addOrderBy('v.number', 'ASC');
+    applyFilters(candidates, filters);
+
+    const rows = await AppDataSource.createQueryBuilder()
+      .select('*')
+      .from(`(${candidates.getQuery()})`, 'pairs')
+      .where('pairs."comparableEditions" > 1')
+      .orderBy('pairs.manga', 'ASC')
+      .addOrderBy('pairs."volumeNumber"', 'ASC')
+      .addOrderBy('pairs.publisher', 'ASC')
+      .limit(500)
+      .setParameters(candidates.getParameters())
+      .getRawMany<Record<string, string | null>>();
+    return reply.send(
+      rows.map((row) => ({
+        mangaId: row.mangaId,
+        manga: row.manga,
+        volumeNumber: Number(row.volumeNumber),
+        editionId: row.editionId,
+        publication: row.publication,
+        publisher: row.publisher,
+        formatType: row.formatType,
+        formatLabel: formatLabels[row.formatType ?? ''] ?? formatLabels['unknown'],
+        volumesPerBook: row.volumesPerBook === null ? null : Number(row.volumesPerBook),
+        price: Number(row.price),
+        normalizedPrice: row.normalizedPrice === null ? null : Number(row.normalizedPrice),
+        comparableEditions: Number(row.comparableEditions),
       })),
     );
   });

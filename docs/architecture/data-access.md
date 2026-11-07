@@ -24,6 +24,14 @@ fonte → parser/normalizer → PostgreSQL ← TypeORM/API ← serviços Angular
 
 O gráfico de preços por ano agrupa o valor de capa informado pelo ano de lançamento do volume. Ele não representa o histórico de reajustes anuais. Os relatórios e tooltips devem explicitar essa base e o tamanho da amostra.
 
+## Métricas comparativas de preço
+
+- Média, mediana e quartis por editora ou formato usam o último preço conhecido de cada volume; a cobertura e a amostra são exibidas junto aos valores.
+- O preço normalizado por volume-fonte é calculado somente para edições convencionais ou compilações 2 em 1/3 em 1 quando `volumesPerBook` é conhecido. Outros formatos permanecem sem normalização.
+- Preço por página usa volumes com preço e `pageCount` válido (>20); a cobertura de páginas é mostrada para tornar a amostra visível.
+- A série de preços observados agrupa `PriceObservation.observedAt` por mês em `America/Sao_Paulo`. Variações são diferenças entre observações consecutivas da mesma variante/fonte. A data é de leitura pelo Collector, não uma data oficial de reajuste; a primeira observação não conta como alteração.
+- Comparações por edição pareiam a mesma obra e número de volume, mas isso não comprova conteúdo equivalente. Formato, quantidade compilada e paginação podem divergir.
+
 ## Dados ausentes e inferência
 
 Quando a fonte omite um valor, o upsert preserva dados existentes onde aplicável. O parser não deve transformar ausência de formato em `regular`; usa `unknown`, preserva a evidência e só preenche `volumesPerBook` quando a indicação dá suporte. Dimensões como `13,7 x 20 cm` são formato físico e ficam separadas de 2 em 1/Omnibus.

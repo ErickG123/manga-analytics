@@ -37,6 +37,9 @@ export interface PriceByPublisher {
   pricedVolumes: number;
   priceCoverage: number | null;
   sampleSize: number;
+  medianPrice: number | null;
+  lowerQuartilePrice: number | null;
+  upperQuartilePrice: number | null;
 }
 
 export interface ReleasesByMonth {
@@ -90,4 +93,58 @@ export interface PublisherReleaseMonth {
   year: number;
   month: number;
   count: number;
+}
+
+export interface PriceByFormat {
+  formatType: string;
+  label: string;
+  editionsCount: number;
+  mangaCount: number;
+  volumesCount: number;
+  pricedVolumes: number;
+  priceCoverage: number | null;
+  averagePrice: number | null;
+  medianPrice: number | null;
+  lowerQuartilePrice: number | null;
+  upperQuartilePrice: number | null;
+  normalizedAveragePrice: number | null;
+  normalizedSampleSize: number;
+}
+
+export interface PricePerPagePublisher {
+  publisherId: string;
+  publisher: string;
+  averagePricePerPage: number | null;
+  averagePages: number | null;
+  pricedVolumes: number;
+  volumesWithPageCount: number;
+  volumesCount: number;
+  pageCoverage: number | null;
+}
+
+export interface ObservedPriceMonth {
+  year: number;
+  month: number;
+  label: string;
+  observationsCount: number;
+  changesCount: number;
+  increasesCount: number;
+  decreasesCount: number;
+  averageObservedPrice: number | null;
+  averageChangePercent: number | null;
+}
+
+export interface ComparableEditionPrice {
+  mangaId: string;
+  manga: string;
+  volumeNumber: number;
+  editionId: string;
+  publication: string;
+  publisher: string;
+  formatType: string;
+  formatLabel: string;
+  volumesPerBook: number | null;
+  price: number;
+  normalizedPrice: number | null;
+  comparableEditions: number;
 }

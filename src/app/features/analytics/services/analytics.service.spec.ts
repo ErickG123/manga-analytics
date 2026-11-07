@@ -143,6 +143,21 @@ describe('AnalyticsService', () => {
     await expect(promise).resolves.toMatchObject([{ editionsCount: 3, volumesCount: 20 }]);
   });
 
+  it('busca métricas por formato editorial', async () => {
+    const promise = service.getPricesByFormat({ yearFrom: 2020 });
+    const req = httpTesting.expectOne(
+      (request) => request.url === `${environment.apiUrl}/analytics/prices/by-format`,
+    );
+    expect(req.request.params.get('yearFrom')).toBe('2020');
+    req.flush([{ formatType: 'regular', label: 'Regular', normalizedSampleSize: 8 }]);
+    await expect(promise).resolves.toMatchObject([{ normalizedSampleSize: 8 }]);
+  });
+
+  it('não consulta comparações entre edições sem uma obra pesquisada', async () => {
+    await expect(service.getComparableEditionPrices({ manga: '  ' })).resolves.toEqual([]);
+    httpTesting.expectNone(`${environment.apiUrl}/analytics/prices/comparable-editions`);
+  });
+
   it('propaga erro de consulta para que a tela não apresente falha como zero', async () => {
     const promise = service.getOverview();
     const req = httpTesting.expectOne(`${environment.apiUrl}/analytics/overview`);
