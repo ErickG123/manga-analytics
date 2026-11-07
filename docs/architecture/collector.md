@@ -49,3 +49,7 @@ Upserts preservam valores já conhecidos quando uma nova captura omite informaç
 As falhas de ficha podem ser registradas e repetidas isoladamente. HTTP 429 gera espera/suspensão; bloqueios e falhas de estado não devem ser convertidos em sucesso para manter o loop. Configure intervalo, tentativas, concorrência e pausas conforme `.env.example`. O runbook de [rate limit e segurança](../collector/security-and-rate-limiting.md), [recuperação](../collector/recovery-runbook.md) e [backfill progressivo](../collector/progressive-import-runbook.md) cobre operações detalhadas.
 
 Os testes locais do parser usam fixtures e não medem latência nem disponibilidade BBM: `npm run test:collector` e `npm run lint:collector`.
+
+# Extração de créditos
+
+O parser do BBM reúne créditos textuais rotulados (por exemplo, autor, roteiro, arte, desenho, tradução e adaptação) em um único campo `author`, preservando cada rótulo junto ao nome. Créditos repetidos são removidos. A extração depende de texto e rótulos encontrados na página; dados apresentados apenas como imagem ou sem rótulo podem não ser detectados. A coluna correspondente usa `text` para não limitar a quantidade de colaboradores.

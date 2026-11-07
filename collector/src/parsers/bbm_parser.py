@@ -142,6 +142,66 @@ def _publication_metadata(
     }
 
 
+_CREDIT_FIELDS = re.compile(
+    r"(?P<role>Autor(?:es|ia)?|Roteiro|Hist[oó]ria|Argumento|"
+    r"Arte(?:-final)?|Desenho|Ilustra[cç][aã]o|Tradu[cç][aã]o|"
+    r"Adapta[cç][aã]o|Cria[cç][aã]o|Personagens|Cores)\s*:",
+    re.IGNORECASE,
+)
+_PAGE_FIELDS = re.compile(
+    r"(?:Editora(?:\s+brasileira|\s+original)?|Formato|G[eê]nero|"
+    r"Status|Volumes?|Pre[cç]o|ISBN|Origem|Publica[cç][aã]o)\s*:",
+    re.IGNORECASE,
+)
+
+
+def _extract_author_credits(soup: BeautifulSoup) -> str | None:
+    """Collect all labeled creator credits while retaining each role."""
+    credit_entries: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for node in soup.find_all(["p", "li", "dt", "dd"]):
+        text = node.get_text(" ", strip=True)
+        matches = list(_CREDIT_FIELDS.finditer(text))
+        if not matches:
+            continue
+        boundaries = sorted(
+            [match.start() for match in matches]
+            + [match.start() for match in _PAGE_FIELDS.finditer(text)]
+        )
+        for match in matches:
+            next_boundary = next(
+                (position for position in boundaries if position > match.start()),
+                len(text),
+            )
+            value = text[match.end() : next_boundary].strip(" \t\n\r:;,.|–—-")
+            if not value:
+                continue
+            role = match.group("role").strip()
+            key = (_normalize_label(role), _normalize_label(value))
+            if key not in seen:
+                credit_entries.append((role, value))
+                seen.add(key)
+
+    if not credit_entries:
+        # Preserve compatibility with pages that put credits in plain text rather
+        # than a paragraph or list item.
+        for line in soup.get_text("\n", strip=True).splitlines():
+            match = _CREDIT_FIELDS.match(line.strip())
+            if match:
+                value = line[match.end() :].strip(" \t\n\r:;,.|–—-")
+                if value:
+                    role = match.group("role").strip()
+                    key = (_normalize_label(role), _normalize_label(value))
+                    if key not in seen:
+                        credit_entries.append((role, value))
+                        seen.add(key)
+
+    if not credit_entries:
+        return None
+    return "; ".join(f"{role}: {value}" for role, value in credit_entries)
+
+
 def parse_bbm_publisher(html: str) -> str:
     """Extract only the Brazilian publisher, without parsing volume tables."""
     text_content = BeautifulSoup(html, "html.parser").get_text("\n", strip=True)
@@ -153,19 +213,11 @@ def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
 
     # 1. Metadados básicos
     title = page_title.strip()
-    author = None
+    author = _extract_author_credits(soup)
     publisher_name = "Não informada"
     original_title = None
 
     text_content = soup.get_text("\n", strip=True)
-    author_match = re.search(
-        r"(?:Roteiro|História|Arte|Autor|Autoria):\s*([^\n\r]+)",
-        text_content,
-        re.IGNORECASE,
-    )
-    if author_match:
-        author = author_match.group(1).strip()
-
     publisher_name = _publisher_from_text(text_content)
 
     # 2. Capas de volumes brasileiros

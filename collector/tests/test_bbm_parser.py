@@ -38,7 +38,7 @@ def test_parse_bbm_page_fixture():
     data = parse_bbm_page(html, "One Piece Aventura Escolar")
 
     assert data["title"] == "One Piece Aventura Escolar"
-    assert data["author"] == "Souhei Kouji"
+    assert data["author"] == "Autor: Souhei Kouji"
     assert data["publisher"] == "Panini"
     assert len(data["volumes"]) == 3
     assert data["volumes"][0]["price_amount"] == Decimal("39.90")
@@ -46,6 +46,25 @@ def test_parse_bbm_page_fixture():
     assert data["volumes"][1]["release_date_precision"] == "month"
     assert data["volumes"][2]["release_status"] == "unknown"
     assert data["volume_parse_complete"] is True
+
+
+def test_parser_collects_all_labeled_creator_credits_and_deduplicates_them():
+    html = """<div class="entry-content">
+      <p><strong>Autor:</strong> Tsugumi Ohba</p>
+      <p><strong>Roteiro:</strong> Tsugumi Ohba</p>
+      <p><strong>Arte:</strong> Takeshi Obata</p>
+      <p><strong>Desenho:</strong> Takeshi Obata</p>
+      <p><strong>Arte:</strong> Takeshi Obata</p>
+      <p><strong>Editora:</strong> Panini</p>
+    </div>"""
+
+    parsed = parse_bbm_page(html, "Obra com vários créditos")
+
+    assert parsed["author"] == (
+        "Autor: Tsugumi Ohba; Roteiro: Tsugumi Ohba; Arte: Takeshi Obata; "
+        "Desenho: Takeshi Obata"
+    )
+    assert parsed["publisher"] == "Panini"
 
 
 def test_parse_bbm_table_with_data_cells_as_headers():
