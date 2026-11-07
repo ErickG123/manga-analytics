@@ -9,6 +9,7 @@
     "test:watch": "ng test --watch",
     "test:coverage": "ng test --watch=false --coverage",
     "test:api": "vitest run apps/api/src/app.spec.ts apps/api/src/modules/admin/collector-runner.service.spec.ts apps/api/src/modules/manga/services/manga.service.spec.ts",
+    "test:api:coverage": "vitest run apps/api/src/app.spec.ts apps/api/src/modules/admin/collector-runner.service.spec.ts apps/api/src/modules/manga/services/manga.service.spec.ts --coverage --coverage.include=apps/api/src/**/*.ts --coverage.exclude=**/*.spec.ts",
     "test:collector": "python -m pytest collector/tests",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

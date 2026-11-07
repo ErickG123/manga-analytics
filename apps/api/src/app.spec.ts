@@ -68,6 +68,52 @@ describe('Fastify REST API', () => {
     expect(body).toHaveProperty('coverUrl');
   });
 
+  it('GET /api/v1/volumes deve retornar detalhes e histórico temporal de preço', async () => {
+    const listRes = await app.inject({ method: 'GET', url: '/api/v1/mangas?limit=1' });
+    const manga = JSON.parse(listRes.body).data[0] as { slug: string };
+    const detailRes = await app.inject({ method: 'GET', url: `/api/v1/mangas/${manga.slug}` });
+    const detail = JSON.parse(detailRes.body) as { volumes: { id: string }[] };
+    const volumeId = detail.volumes[0]?.id;
+    expect(volumeId).toBeDefined();
+
+    const volumeRes = await app.inject({ method: 'GET', url: `/api/v1/volumes/${volumeId}` });
+    expect(volumeRes.statusCode, volumeRes.body).toBe(200);
+    expect(JSON.parse(volumeRes.body).id).toBe(volumeId);
+
+    const historyRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/volumes/${volumeId}/price-history`,
+    });
+    expect(historyRes.statusCode, historyRes.body).toBe(200);
+    const history = JSON.parse(historyRes.body) as {
+      volumeId: string;
+      observationsCount: number;
+      hasSufficientHistory: boolean;
+      observations: { price: number; sourceId: string }[];
+    };
+    expect(history.volumeId).toBe(volumeId);
+    expect(history.observationsCount).toBe(history.observations.length);
+    expect(history.hasSufficientHistory).toBe(history.observationsCount > 1);
+    expect(history.observations.every((observation) => Number.isFinite(observation.price))).toBe(
+      true,
+    );
+  });
+
+  it('GET /api/v1/volumes retorna 404 para volume e histórico inexistentes', async () => {
+    const missingVolumeId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const volumeRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/volumes/${missingVolumeId}`,
+    });
+    const historyRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/volumes/${missingVolumeId}/price-history`,
+    });
+
+    expect(volumeRes.statusCode).toBe(404);
+    expect(historyRes.statusCode).toBe(404);
+  });
+
   it('GET /api/v1/publishers deve retornar lista de editoras', async () => {
     const res = await app.inject({
       method: 'GET',
