@@ -131,6 +131,7 @@ describe('MangaService (Unit Tests)', () => {
     expect(result.data[0].publisher).toBe('Panini');
     expect(result.data[0].volumes.length).toBe(1);
     expect(result.data[0].volumes[0].coverPriceBrl).toBe(16.9);
+    expect(result.data[0].volumes[0].priceStatus).toBe('priced');
     expect(result.data[0].volumes[0].editionName).toBe('Padrão');
     expect(result.data[0].volumes[0].editionFormatType).toBe('two_in_one');
     expect(result.data[0].volumes[0].variants).toEqual([
@@ -140,9 +141,38 @@ describe('MangaService (Unit Tests)', () => {
         release: { value: '18/01/2025', precision: 'day', status: 'released' },
         coverUrl: undefined,
         coverPriceBrl: 49.9,
+        priceStatus: 'priced',
       },
     ]);
     expect(result.pagination.total).toBe(1);
     expect(result.pagination.totalPages).toBe(1);
+  });
+
+  it('classifica volume sem preço sem criar um valor numérico falso', async () => {
+    const manga = {
+      id: 'm-2',
+      slug: 'sem-preco',
+      title: 'Sem preço',
+      category: 'Geral',
+      accent: '#000',
+      initials: 'SP',
+      editions: [
+        {
+          id: 'ed-2',
+          name: 'Edição brasileira',
+          format: 'Volume convencional',
+          formatType: 'regular',
+          publisher: { name: 'Editora' },
+          volumes: [{ id: 'v-2', number: 1, prices: [], variants: [], edition: null }],
+        },
+      ],
+    } as unknown as Manga;
+    const fakeRepo: Partial<MangaRepository> = {
+      findByIdentifier: async () => manga,
+      findSourceReference: async () => null,
+    };
+    const result = await new MangaService(fakeRepo as MangaRepository).getByIdentifier('sem-preco');
+    expect(result?.volumes[0].coverPriceBrl).toBeNull();
+    expect(result?.volumes[0].priceStatus).toBe('not_informed');
   });
 });

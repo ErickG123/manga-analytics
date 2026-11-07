@@ -4,6 +4,7 @@ export interface MangaVolumeVariantDto {
   release: { value: string | null | undefined; precision: string; status: string };
   coverUrl?: string | null;
   coverPriceBrl: number | null;
+  priceStatus: 'priced' | 'not_informed';
 }
 
 export interface MangaVolumeDto {
@@ -18,6 +19,7 @@ export interface MangaVolumeDto {
   coverUrl?: string | null;
   release: { value: string | null | undefined; precision: string; status: string };
   coverPriceBrl: number | null;
+  priceStatus: 'priced' | 'not_informed';
   variants: MangaVolumeVariantDto[];
 }
 

@@ -159,6 +159,23 @@ def test_parser_marks_conflicting_duplicate_volume_rows_incomplete():
     assert len(parsed["volumes"]) == 1
     assert parsed["conflicting_volume_numbers"] == [27]
     assert parsed["volume_parse_complete"] is False
+    assert parsed["volumes"][0]["variants"][0]["name"].startswith(
+        "Variação não identificada"
+    )
+
+
+def test_parser_accepts_volume_rows_without_release_date_or_price_columns():
+    html = """<table><tr><th>Volume</th><th>Observação</th></tr>
+    <tr><td>1</td><td>Disponível</td></tr>
+    <tr><td>2</td><td>Pré-venda</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "Obra sem preço ou data")
+
+    assert parsed["volume_table_found"] is True
+    assert parsed["volume_parse_complete"] is True
+    assert [volume["number"] for volume in parsed["volumes"]] == [1, 2]
+    assert all(volume["price_amount"] is None for volume in parsed["volumes"])
+    assert all(volume["release_date"] is None for volume in parsed["volumes"])
 
 
 def test_parser_attaches_special_editions_as_variants_of_the_same_volume():

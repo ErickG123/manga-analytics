@@ -11,6 +11,7 @@ export interface CalendarReleaseDto {
   day: number | null;
   status: 'released' | 'planned' | 'unknown';
   price: number | null;
+  priceStatus: 'priced' | 'not_informed';
   coverUrl?: string | null;
 }
 

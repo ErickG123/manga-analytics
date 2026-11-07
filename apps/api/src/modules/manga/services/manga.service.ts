@@ -27,17 +27,21 @@ function latestVariantPrice(variant: VolumeVariant): number | null {
 }
 
 function mapVariants(volume: Volume) {
-  return (volume.variants ?? []).map((variant) => ({
-    id: variant.id,
-    name: variant.name,
-    release: {
-      value: variant.releaseDate,
-      precision: variant.releaseDatePrecision,
-      status: variant.releaseStatus,
-    },
-    coverUrl: variant.coverUrl,
-    coverPriceBrl: latestVariantPrice(variant),
-  }));
+  return (volume.variants ?? []).map((variant) => {
+    const coverPriceBrl = latestVariantPrice(variant);
+    return {
+      id: variant.id,
+      name: variant.name,
+      release: {
+        value: variant.releaseDate,
+        precision: variant.releaseDatePrecision,
+        status: variant.releaseStatus,
+      },
+      coverUrl: variant.coverUrl,
+      coverPriceBrl,
+      priceStatus: coverPriceBrl === null ? ('not_informed' as const) : ('priced' as const),
+    };
+  });
 }
 
 export class MangaService {
@@ -69,24 +73,28 @@ export class MangaService {
         coverUrl: m.coverUrl,
         volumesCount: editionVolumes.length,
         updatedAt: m.updatedAt,
-        volumes: editionVolumes.map(({ volume: v, edition: e }) => ({
-          id: v.id,
-          editionId: e.id,
-          editionName: e.name,
-          editionFormat: e.format,
-          editionFormatType: e.formatType,
-          number: v.number,
-          title: v.title,
-          isbn13: v.isbn13,
-          coverUrl: v.coverUrl || m.coverUrl,
-          release: {
-            value: v.releaseDate,
-            precision: v.releaseDatePrecision,
-            status: v.releaseStatus,
-          },
-          coverPriceBrl: latestCoverPrice(v),
-          variants: mapVariants(v),
-        })),
+        volumes: editionVolumes.map(({ volume: v, edition: e }) => {
+          const coverPriceBrl = latestCoverPrice(v);
+          return {
+            id: v.id,
+            editionId: e.id,
+            editionName: e.name,
+            editionFormat: e.format,
+            editionFormatType: e.formatType,
+            number: v.number,
+            title: v.title,
+            isbn13: v.isbn13,
+            coverUrl: v.coverUrl || m.coverUrl,
+            release: {
+              value: v.releaseDate,
+              precision: v.releaseDatePrecision,
+              status: v.releaseStatus,
+            },
+            coverPriceBrl,
+            priceStatus: coverPriceBrl === null ? ('not_informed' as const) : ('priced' as const),
+            variants: mapVariants(v),
+          };
+        }),
       };
     });
 
@@ -142,25 +150,29 @@ export class MangaService {
         status: e.status,
         publisher: e.publisher.name,
       })),
-      volumes: editionVolumes.map(({ volume: v, edition: e }) => ({
-        id: v.id,
-        editionId: e.id,
-        editionName: e.name,
-        editionFormat: e.format,
-        editionFormatType: e.formatType,
-        number: v.number,
-        title: v.title,
-        isbn13: v.isbn13,
-        pageCount: v.pageCount,
-        coverUrl: v.coverUrl || manga.coverUrl,
-        release: {
-          value: v.releaseDate,
-          precision: v.releaseDatePrecision,
-          status: v.releaseStatus,
-        },
-        coverPriceBrl: latestCoverPrice(v),
-        variants: mapVariants(v),
-      })),
+      volumes: editionVolumes.map(({ volume: v, edition: e }) => {
+        const coverPriceBrl = latestCoverPrice(v);
+        return {
+          id: v.id,
+          editionId: e.id,
+          editionName: e.name,
+          editionFormat: e.format,
+          editionFormatType: e.formatType,
+          number: v.number,
+          title: v.title,
+          isbn13: v.isbn13,
+          pageCount: v.pageCount,
+          coverUrl: v.coverUrl || manga.coverUrl,
+          release: {
+            value: v.releaseDate,
+            precision: v.releaseDatePrecision,
+            status: v.releaseStatus,
+          },
+          coverPriceBrl,
+          priceStatus: coverPriceBrl === null ? ('not_informed' as const) : ('priced' as const),
+          variants: mapVariants(v),
+        };
+      }),
     };
   }
 }

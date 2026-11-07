@@ -31,6 +31,7 @@ O gráfico de preços por ano agrupa o valor de capa informado pelo ano de lanç
 - Preço por página usa volumes com preço e `pageCount` válido (>20); a cobertura de páginas é mostrada para tornar a amostra visível.
 - A série de preços observados agrupa `PriceObservation.observedAt` por mês em `America/Sao_Paulo`. Variações são diferenças entre observações consecutivas da mesma variante/fonte. A data é de leitura pelo Collector, não uma data oficial de reajuste; a primeira observação não conta como alteração.
 - Comparações por edição pareiam a mesma obra e número de volume, mas isso não comprova conteúdo equivalente. Formato, quantidade compilada e paginação podem divergir.
+- Preço ausente permanece `NULL`/sem observação no banco e recebe a classificação `not_informed` na API. Nas telas de volume e calendário, `R$ 0,00` é apenas um marcador visual acompanhado de “Sem preço informado”; esse marcador nunca é salvo como preço nem participa de filtros de preço, médias, quartis ou gráficos.
 
 ## Dados ausentes e inferência
 

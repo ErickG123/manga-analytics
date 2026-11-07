@@ -90,7 +90,11 @@ describe('Fastify REST API', () => {
     const body = JSON.parse(res.body);
     expect(Array.isArray(body.data)).toBe(true);
     expect(body.pagination).toHaveProperty('total');
-    if (body.data.length > 0) expect(body.data[0]).toHaveProperty('precision');
+    if (body.data.length > 0) {
+      expect(body.data[0]).toHaveProperty('precision');
+      expect(body.data[0]).toHaveProperty('priceStatus');
+      expect(['priced', 'not_informed']).toContain(body.data[0].priceStatus);
+    }
   });
 
   it('GET /api/v1/releases deve paginar corretamente por intervalo de datas e editora', async () => {

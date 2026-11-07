@@ -136,21 +136,25 @@ export async function registerCalendarRoutes(app: FastifyInstance) {
       .map((id) => volumesById.get(id))
       .filter((volume): volume is Volume => volume !== undefined);
 
-    const data: CalendarReleaseDto[] = orderedVolumes.map((volume) => ({
-      id: volume.id,
-      slug: volume.edition.manga.slug,
-      title: volume.edition.manga.title,
-      publisher: volume.edition.publisher.name,
-      number: volume.number,
-      date: volume.releaseDate ?? null,
-      precision: volume.releaseDatePrecision,
-      year: volume.releaseYear ?? null,
-      month: volume.releaseMonth ?? null,
-      day: volume.releaseDay ?? null,
-      status: volume.releaseStatus,
-      price: latestPrice(volume),
-      coverUrl: volume.coverUrl || volume.edition.manga.coverUrl,
-    }));
+    const data: CalendarReleaseDto[] = orderedVolumes.map((volume) => {
+      const price = latestPrice(volume);
+      return {
+        id: volume.id,
+        slug: volume.edition.manga.slug,
+        title: volume.edition.manga.title,
+        publisher: volume.edition.publisher.name,
+        number: volume.number,
+        date: volume.releaseDate ?? null,
+        precision: volume.releaseDatePrecision,
+        year: volume.releaseYear ?? null,
+        month: volume.releaseMonth ?? null,
+        day: volume.releaseDay ?? null,
+        status: volume.releaseStatus,
+        price,
+        priceStatus: price === null ? 'not_informed' : 'priced',
+        coverUrl: volume.coverUrl || volume.edition.manga.coverUrl,
+      };
+    });
 
     return reply.send({
       data,

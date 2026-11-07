@@ -10,6 +10,7 @@ export interface Volume {
   title?: string;
   release: ReleaseDate;
   coverPriceBrl: number | null;
+  priceStatus?: 'priced' | 'not_informed';
   isbn13?: string;
   coverUrl?: string | null;
   variants?: VolumeVariant[];
@@ -20,5 +21,6 @@ export interface VolumeVariant {
   name: string;
   release: ReleaseDate;
   coverPriceBrl: number | null;
+  priceStatus?: 'priced' | 'not_informed';
   coverUrl?: string | null;
 }

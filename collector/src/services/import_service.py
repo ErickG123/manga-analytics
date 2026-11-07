@@ -393,46 +393,30 @@ class ImportService:
                 result.timings_ms["parse_duration_ms"] = (
                     result.timings_ms.get("parse_duration_ms", 0) + parse_ms
                 )
+                parse_issue_message: str | None = None
                 if not parsed.get("volume_parse_complete", False):
                     conflicts = parsed.get("conflicting_volume_numbers", [])
-                    reason = (
-                        f"números de volume com linhas conflitantes: {conflicts}"
-                        if conflicts
-                        else "tabela de volumes ausente ou incompleta"
-                    )
-                    message = (
-                        f"Ficha {page_id} ({raw_title}) não persistida: {reason}; "
+                    reasons = []
+                    if conflicts:
+                        reasons.append(
+                            f"linhas duplicadas com dados diferentes: {conflicts}"
+                        )
+                    if not parsed.get("volume_table_found", False):
+                        reasons.append("tabela de volumes não encontrada")
+                    elif parsed.get("volume_rows_skipped", 0):
+                        reasons.append(
+                            f"{parsed['volume_rows_skipped']} linha(s) sem número identificável"
+                        )
+                    if not parsed.get("volumes"):
+                        reasons.append("nenhum número de volume pôde ser identificado")
+                    parse_issue_message = (
+                        f"Ficha {page_id} ({raw_title}) parcialmente interpretada: "
+                        f"{'; '.join(reasons) or 'revisão necessária'}; "
                         f"volume_table_found={parsed.get('volume_table_found', False)}, "
                         f"volume_rows_skipped={parsed.get('volume_rows_skipped', 0)}, "
                         f"conflicting_volume_numbers={conflicts}"
                     )
-                    result.failed += 1
-                    result.errors.append(message)
-                    logger.error(message)
-                    record_failure = getattr(
-                        self.repository, "record_collector_failure", None
-                    )
-                    failure_recorded = False
-                    if record_failure and not dry_run:
-                        record_failure(
-                            external_id=str(page_id),
-                            external_url=meta.get("link"),
-                            category="data_quality",
-                            status="failed_retryable",
-                            message=message,
-                            last_http_status=None,
-                            job_id=result.run_id,
-                        )
-                        failure_recorded = True
-                    if item_checkpoint and (dry_run or failure_recorded):
-                        item_checkpoint(metadata_offset + 1, str(page_id))
-                    elif item_checkpoint and not dry_run:
-                        result.termination_status = "failed"
-                        logger.error(
-                            "Falha não foi persistida; checkpoint preservado para replay."
-                        )
-                        break
-                    continue
+                    logger.warning("%s", parse_issue_message)
                 manga = MangaCollected(
                     title=parsed["title"],
                     original_title=parsed.get("original_title"),
@@ -524,6 +508,9 @@ class ImportService:
                 result.works_without_cover += int(not manga.cover_url)
 
                 if dry_run:
+                    if parse_issue_message:
+                        result.failed += 1
+                        result.errors.append(parse_issue_message)
                     if prior:
                         result.would_update += 1
                     else:
@@ -559,11 +546,28 @@ class ImportService:
                     else:
                         status = "updated" if prior else "created"
                     setattr(result, status, getattr(result, status) + 1)
-                    resolve_failure = getattr(
-                        self.repository, "resolve_collector_failure", None
-                    )
-                    if resolve_failure:
-                        resolve_failure(str(page_id))
+                    if parse_issue_message:
+                        result.failed += 1
+                        result.errors.append(parse_issue_message)
+                        record_failure = getattr(
+                            self.repository, "record_collector_failure", None
+                        )
+                        if record_failure:
+                            record_failure(
+                                external_id=str(page_id),
+                                external_url=meta.get("link"),
+                                category="data_quality",
+                                status="needs_review",
+                                message=parse_issue_message,
+                                last_http_status=None,
+                                job_id=result.run_id,
+                            )
+                    else:
+                        resolve_failure = getattr(
+                            self.repository, "resolve_collector_failure", None
+                        )
+                        if resolve_failure:
+                            resolve_failure(str(page_id))
                     logger.info(
                         "[%s] %s: %s volumes, %s com preço",
                         status.upper(),

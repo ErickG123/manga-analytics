@@ -110,6 +110,13 @@ describe('DetailPageComponent', () => {
     expect(detail).toContain('R$ 49,90');
   });
 
+  it('exibe R$ 0,00 como marcador com classificação de preço não informado', () => {
+    const detail = fixture.nativeElement.textContent as string;
+    expect(detail).toContain('0,00');
+    expect(detail).toContain('Sem preço informado');
+    expect(detail).toContain('não entra nas análises');
+  });
+
   it('exibe formato editorial e quantidade de volumes reunidos por livro', () => {
     const detail = fixture.nativeElement.textContent as string;
     expect(detail).toContain('2ª Publicação');

@@ -294,9 +294,12 @@
                             </div>
                             <p class="timeline-price">
                               {{ releasePrecision(entry) }}
-                              @if (entry.price !== null) {
-                                ·
-                                {{ entry.price | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR' }}
+                              ·
+                              {{
+                                entry.price ?? 0 | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
+                              }}
+                              @if (entry.price === null) {
+                                <span class="price-status">· Sem preço informado</span>
                               }
                             </p>
                           </div>
@@ -375,11 +378,10 @@
                 }}
               </td>
               <td>
-                {{
-                  entry.price === null
-                    ? 'Não informado'
-                    : (entry.price | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
-                }}
+                {{ entry.price ?? 0 | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR' }}
+                @if (entry.price === null) {
+                  <small class="price-status">Sem preço informado</small>
+                }
               </td>
             </tr>
           } @empty {

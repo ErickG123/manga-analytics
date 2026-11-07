@@ -242,6 +242,10 @@
                                   | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
                               }}
                             </span>
+                          } @else {
+                            <span class="variant-price variant-price-missing"
+                              >· R$ 0,00 · Sem preço informado</span
+                            >
                           }
                         </li>
                       }
@@ -275,12 +279,13 @@
                   </span>
                 </td>
                 <td class="price-col">
-                  @if (v.coverPriceBrl !== null) {
-                    <strong class="price-value">
-                      {{ v.coverPriceBrl | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR' }}
-                    </strong>
-                  } @else {
-                    <span class="muted">Não informado</span>
+                  <strong class="price-value">
+                    {{ v.coverPriceBrl ?? 0 | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR' }}
+                  </strong>
+                  @if (v.priceStatus === 'not_informed' || v.coverPriceBrl === null) {
+                    <span class="muted price-status"
+                      >Sem preço informado; R$ 0,00 é marcador e não entra nas análises.</span
+                    >
                   }
                 </td>
               </tr>

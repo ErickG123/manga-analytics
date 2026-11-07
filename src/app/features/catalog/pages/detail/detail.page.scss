@@ -493,6 +493,13 @@
   font-weight: 600;
 }
 
+.variant-price-missing,
+.price-status {
+  color: var(--app-muted, #a5a9b8);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
 .isbn-col code {
   font-family: monospace;
   font-size: 0.82rem;
@@ -545,6 +552,12 @@
   font-family: 'Space Grotesk', sans-serif;
   font-size: 1.05rem;
   color: #fff;
+}
+
+.price-col .price-status {
+  display: block;
+  max-width: 15rem;
+  white-space: normal;
 }
 
 .empty-cell {

@@ -410,11 +410,20 @@ def test_force_reparse_persists_even_when_source_content_hash_is_unchanged():
     assert len(repository.saved) == 1
 
 
-def test_incomplete_or_conflicting_volume_table_is_not_persisted():
+def test_conflicting_volume_rows_are_saved_as_variants_and_queued_for_review():
     html = """<table><tr><th>Volume</th><th>Brasil</th><th>Preço</th></tr>
     <tr><td>27</td><td>15/01/2025</td><td>R$ 40,90</td></tr>
     <tr><td>27</td><td>18/01/2025</td><td>R$ 49,90</td></tr></table>"""
-    repository = RecordingRepository()
+
+    class FailureRecordingRepository(RecordingRepository):
+        def __init__(self):
+            super().__init__()
+            self.failures = []
+
+        def record_collector_failure(self, **failure):
+            self.failures.append(failure)
+
+    repository = FailureRecordingRepository()
 
     class ConflictingFixtureClient(FixtureClient):
         def fetch_page(self, page_id):
@@ -427,7 +436,11 @@ def test_incomplete_or_conflicting_volume_table_is_not_persisted():
 
     assert result.failed == 1
     assert "27" in result.errors[0]
-    assert repository.saved == []
+    assert len(repository.saved) == 1
+    assert repository.saved[0].volumes[0].number == 27
+    assert repository.saved[0].volumes[0].price_amount == Decimal("40.90")
+    assert repository.saved[0].volumes[0].variants[0].price_amount == Decimal("49.90")
+    assert repository.failures[0]["status"] == "needs_review"
 
 
 def test_incomplete_table_is_queued_for_retry_and_does_not_stop_batch():
@@ -475,13 +488,16 @@ def test_incomplete_table_is_queued_for_retry_and_does_not_stop_batch():
 
     assert client.fetch_calls == [456, 457]
     assert result.failed == 1
-    assert result.created == 1
-    assert len(repository.saved) == 1
-    assert repository.saved[0].external_id == "457"
+    assert result.created == 2
+    assert len(repository.saved) == 2
+    assert repository.saved[0].external_id == "456"
+    assert repository.saved[0].volumes == []
+    assert repository.saved[0].sync_complete is False
+    assert repository.saved[1].external_id == "457"
     assert repository.failures[0]["external_id"] == "456"
     assert repository.failures[0]["external_url"] == "https://blogbbm.com/obra/456"
     assert repository.failures[0]["category"] == "data_quality"
-    assert repository.failures[0]["status"] == "failed_retryable"
+    assert repository.failures[0]["status"] == "needs_review"
     assert checkpoints == [(1, "456"), (2, "457")]
 
 

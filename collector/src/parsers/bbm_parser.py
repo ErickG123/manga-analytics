@@ -271,11 +271,12 @@ def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
                 ),
                 None,
             )
-            if volume_index is not None and brazil_index is not None:
+            if volume_index is not None:
                 header_row_index = row_index
                 row_headers = labels
                 column_indexes["volume"] = volume_index
-                column_indexes["date"] = brazil_index
+                if brazil_index is not None:
+                    column_indexes["date"] = brazil_index
                 price_index = next(
                     (i for i, label in enumerate(labels) if "preco" in label), None
                 )
@@ -311,7 +312,11 @@ def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
                 table_skipped += 1
                 continue
 
-            br_date_text = cells[column_indexes["date"]].get_text(" ", strip=True)
+            br_date_text = (
+                cells[column_indexes["date"]].get_text(" ", strip=True)
+                if "date" in column_indexes
+                else ""
+            )
             date_val, precision, year, month, day = parse_brazilian_date(br_date_text)
             price_text = (
                 cells[column_indexes["price"]].get_text(" ", strip=True)
@@ -388,6 +393,13 @@ def parse_bbm_page(html: str, page_title: str) -> dict[str, Any]:
                     if key != "variants"
                 } != {key: value for key, value in volume.items() if key != "variants"}:
                     table_conflicts.add(vol_num)
+                    variant = {
+                        **volume,
+                        "name": f"Variação não identificada (linha {row_index + 1})",
+                    }
+                    for key in ("number", "title", "variants"):
+                        variant.pop(key)
+                    prior_volume["variants"].append(variant)
                 continue
             table_volumes.append(volume)
 
