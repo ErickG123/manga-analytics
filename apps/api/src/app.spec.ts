@@ -377,6 +377,8 @@ describe('Fastify REST API', () => {
     expect(
       body.some((row) => row.formatType === 'unknown' && row.label === 'Volume convencional'),
     ).toBe(true);
+    const digitalEdition = body.find((row) => row.formatType === 'digital_edition');
+    if (digitalEdition) expect(digitalEdition.label).toBe('Edição digital');
   });
 
   it('GET /api/v1/analytics/prices/by-format deve expor amostras e dispersão', async () => {

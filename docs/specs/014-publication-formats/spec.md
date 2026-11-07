@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Representar separadamente cada publicação brasileira de uma obra e registrar quando os dados da fonte indicarem edição regular, 2 em 1, 3 em 1, omnibus, definitiva, deluxe ou outro formato. Preservar o texto e a evidência de origem para distinguir fatos explícitos de classificações não identificadas.
+Representar separadamente cada publicação brasileira de uma obra e registrar quando os dados da fonte indicarem edição regular, 2 em 1, 3 em 1, omnibus, definitiva, deluxe, box, digital ou outro formato. Preservar o texto e a evidência de origem para distinguir fatos explícitos de classificações não identificadas.
 
 ## Requisitos
 
@@ -23,6 +23,8 @@ Representar separadamente cada publicação brasileira de uma obra e registrar q
 - `omnibus`
 - `definitive`
 - `deluxe`
+- `box_set`
+- `digital_edition`
 - `other`
 - `unknown`
 
@@ -34,5 +36,8 @@ O rótulo original e a evidência BBM são preservados junto à categoria. `volu
 - Um parser fixture com primeira edição regular e uma reedição 2 em 1 cria grupos separados e mantém preços/datas por volume.
 - Uma página sem indicação de formato permanece desconhecida, sem rótulo regular inventado.
 - Blue Lock mantém variantes especiais associadas ao volume e à publicação de origem.
+- Linha `Box` na tabela é persistida como publicação `box_set`, com data/preço próprios, sem atribuir número a volume convencional.
+- Cabeçalho `EDIÇÃO DIGITAL` cria uma publicação `digital_edition` distinta da edição impressa.
+- Células HTML mescladas por `rowspan`/`colspan` mantêm os dados alinhados às linhas dos volumes.
 - A API permite filtrar e agrupar publicações pelos formatos e informa a quantidade desconhecida.
 - A suíte da aplicação, collector, integração PostgreSQL isolada e build passam.

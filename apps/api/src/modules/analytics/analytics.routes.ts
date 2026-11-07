@@ -39,6 +39,8 @@ const formatLabels: Record<string, string> = {
   omnibus: 'Omnibus',
   definitive: 'Edição definitiva',
   deluxe: 'Deluxe',
+  box_set: 'Box',
+  digital_edition: 'Edição digital',
   other: 'Outro formato',
   unknown: 'Volume convencional',
 };

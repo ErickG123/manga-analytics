@@ -94,6 +94,35 @@ def test_persist_mode_times_repository_call_without_network():
     assert len(repository.saved[0].volumes) == 3
 
 
+def test_persistence_validates_dates_in_publication_volume_variants():
+    html = """<table>
+      <tr><th>Vol.</th><th>Brasil</th><th>Preço</th><th>Compre em</th></tr>
+      <tr><td># 01</td><td>15/01/2025</td><td>R$ 39,90</td><td>Amazon</td></tr>
+      <tr><td># 01</td><td>Texto editorial longo que não é uma data válida</td>
+        <td>R$ 49,90</td><td>Amazon</td></tr>
+    </table>"""
+    metadata = [
+        {
+            "id": 321,
+            "title": {"rendered": "Obra com variação"},
+            "link": "https://blogbbm.com/manga/obra-com-variacao/",
+            "modified": "2026-11-07T00:00:00",
+            "content": {"rendered": html},
+        }
+    ]
+    repository = RecordingRepository()
+
+    result = ImportService(
+        client=FixtureClient(metadata), repository=repository
+    ).run_import(limit=1)
+
+    assert result.created == 1
+    variants = repository.saved[0].publications[0].volumes[0].variants
+    assert len(variants) == 1
+    assert variants[0].release_date is None
+    assert variants[0].release_date_precision == "unknown"
+
+
 def test_successful_backfill_resolves_a_previously_queued_failure():
     class FailureAwareRepository(RecordingRepository):
         def __init__(self):

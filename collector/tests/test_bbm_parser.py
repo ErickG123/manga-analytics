@@ -78,6 +78,401 @@ def test_parse_bbm_table_with_data_cells_as_headers():
     assert volume["price_amount"] == Decimal("42.90")
 
 
+def test_parser_expands_rowspans_for_brazilian_release_date_and_price():
+    html = """<table>
+      <tr><th>Vol.</th><th>Japão</th><th>Brasil</th><th>Preço</th><th>Compre em</th></tr>
+      <tr><td># 01</td><td>03/08/2007</td><td rowspan="2">#01 – 12/2018</td>
+        <td rowspan="2">R$ 44,90</td><td rowspan="2">Amazon</td></tr>
+      <tr><td># 02</td><td>05/12/2007</td></tr>
+      <tr><td># 03</td><td>05/06/2008</td><td rowspan="2">#02 – 12/2018</td>
+        <td rowspan="2">R$ 44,90</td><td rowspan="2">Amazon</td></tr>
+      <tr><td># 04</td><td>30/01/2009</td></tr>
+    </table>"""
+
+    parsed = parse_bbm_page(html, "Boa Noite Punpun")
+
+    assert parsed["volume_table_found"] is True
+    assert parsed["volume_rows_skipped"] == 0
+    assert parsed["volume_parse_complete"] is True
+    assert [volume["number"] for volume in parsed["volumes"]] == [1, 2]
+    assert all(volume["release_date"] == "12/2018" for volume in parsed["volumes"])
+    assert all(
+        volume["price_amount"] == Decimal("44.90") for volume in parsed["volumes"]
+    )
+
+
+def test_parser_collects_box_as_a_separate_publication_format():
+    html = """<table>
+      <tr><th>Vol.</th><th>Japão</th><th>Brasil</th><th>Preço</th><th>Compre em</th></tr>
+      <tr><td># 01</td><td>03/08/2007</td><td>#01 – 12/2018</td>
+        <td>R$ 44,90</td><td>Amazon</td></tr>
+      <tr><td>Box</td><td>—</td><td>12/2019</td><td>R$ 282,90</td>
+        <td>Amazon</td></tr>
+    </table>"""
+
+    parsed = parse_bbm_page(html, "Boa Noite Punpun")
+
+    assert parsed["volume_parse_complete"] is True
+    assert parsed["volume_rows_skipped"] == 0
+    assert len(parsed["publications"]) == 2
+    box = parsed["publications"][1]
+    assert box["source_key"] == "edicao_brasileira_box"
+    assert box["name"] == "Box"
+    assert box["format_type"] == "box_set"
+    assert box["format_label"] == "Box"
+    assert len(box["volumes"]) == 1
+    assert box["volumes"][0]["title"] == "Box"
+    assert box["volumes"][0]["release_date"] == "12/2019"
+    assert box["volumes"][0]["price_amount"] == Decimal("282.90")
+
+
+def test_parser_ignores_spanned_subseries_headings_without_losing_volume_rows():
+    html = """<table>
+      <tr><th>Vol.</th><th>Japão</th><th>Brasil</th><th>Preço</th></tr>
+      <tr><td colspan="4">POKÉMON YELLOW</td></tr>
+      <tr><td># 01</td><td>1998</td><td>05/08/2020</td><td>R$ 29,90</td></tr>
+    </table>"""
+
+    parsed = parse_bbm_page(html, "Pokémon")
+
+    assert parsed["volume_parse_complete"] is True
+    assert parsed["volume_rows_skipped"] == 0
+    assert len(parsed["volumes"]) == 1
+    assert "POKÉMON YELLOW" in parsed["publications"][0]["format_evidence"]
+
+
+def test_parser_uses_explicit_one_volume_metadata_for_hash_only_row():
+    html = """<p>Nº de volumes no Brasil: 1</p>
+      <p>Publicado no Brasil em: Agosto de 2014</p>
+      <table><tr><th>Vol</th><th>Data no Japão</th><th>Data no Brasil</th>
+        <th>Preço</th></tr>
+      <tr><td>#</td><td>26/04/2010</td><td>Agosto de 2014</td>
+        <td>R$ 17,90</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "A Interpretação dos Sonhos")
+
+    assert parsed["volume_parse_complete"] is True
+    assert parsed["volume_rows_skipped"] == 0
+    assert len(parsed["volumes"]) == 1
+    assert parsed["volumes"][0]["number"] == 1
+    assert parsed["volumes"][0]["release_date"] == "08/2014"
+    assert parsed["volumes"][0]["price_amount"] == Decimal("17.90")
+
+
+def test_parser_distinguishes_chapter_tables_from_volume_tables():
+    html = """<table>
+      <tr><th>Cap.</th><th>Japão</th><th>Brasil</th><th>Preço</th></tr>
+      <tr><td>Capítulo 01</td><td>—</td><td>29/10/2026</td><td>—</td></tr>
+    </table>"""
+
+    parsed = parse_bbm_page(html, "Webtoon sem edição impressa")
+
+    assert parsed["chapter_table_found"] is True
+    assert parsed["volume_table_found"] is False
+    assert parsed["volumes"] == []
+
+
+def test_parser_keeps_digital_edition_as_a_separate_publication():
+    html = """<p><strong>EDIÇÃO DIGITAL</strong></p>
+      <table><tr><th>Vol.</th><th>Brasil</th><th>Preço</th></tr>
+      <tr><td># 01</td><td>19/07/2019</td><td>R$ 32,90</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "Boa Noite Punpun")
+
+    assert parsed["volume_parse_complete"] is True
+    assert len(parsed["publications"]) == 1
+    publication = parsed["publications"][0]
+    assert publication["name"] == "EDIÇÃO DIGITAL"
+    assert publication["source_key"] == "edicao_digital"
+    assert publication["format_type"] == "digital_edition"
+    assert publication["format_label"] == "Edição digital"
+    assert publication["volumes"][0]["price_amount"] == Decimal("32.90")
+
+
+def test_parser_keeps_later_digital_release_as_a_named_variant():
+    html = """<p><strong>EDIÇÃO DIGITAL</strong></p>
+      <table><tr><th>Vol.</th><th>Brasil</th><th>Preço</th></tr>
+      <tr><td>#01</td><td>05/03/2020</td><td>R$ 39,90</td></tr>
+      <tr><td>#01</td><td>11/09/2023</td><td>R$ 64,90</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "Dementia 21")
+
+    assert parsed["volume_parse_complete"] is True
+    assert parsed["conflicting_volume_numbers"] == []
+    volume = parsed["publications"][0]["volumes"][0]
+    assert volume["price_amount"] == Decimal("39.90")
+    assert volume["variants"][0]["name"] == "Reedição digital de 11/09/2023"
+    assert volume["variants"][0]["price_amount"] == Decimal("64.90")
+
+
+def test_parser_reads_box_complete_heading_and_publication_date_column():
+    html = """<p><strong>2ª PUBLICAÇÃO (BOX COMPLETO)</strong></p>
+      <p>Lançamento: junho de 2024</p>
+      <table><tr><th>Volume</th><th>Data de publicação</th><th>Preço</th></tr>
+      <tr><td>#</td><td>14/06/2024</td><td>R$ 369,90</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "Your Lie In April")
+
+    assert parsed["volume_parse_complete"] is True
+    publication = parsed["publications"][0]
+    assert publication["name"] == "2ª PUBLICAÇÃO (BOX COMPLETO)"
+    assert publication["source_key"] == "2a_publicacao_box_completo"
+    assert publication["format_type"] == "box_set"
+    assert publication["volumes"][0]["number"] == 1
+    assert publication["volumes"][0]["title"] == "Box"
+    assert publication["volumes"][0]["release_date"] == "14/06/2024"
+    assert publication["volumes"][0]["price_amount"] == Decimal("369.90")
+
+
+def test_parser_saves_bundle_row_with_source_description_as_box_publication():
+    html = """<table>
+      <tr><th>Vol.</th><th>Japão</th><th>Brasil</th><th>Preço</th></tr>
+      <tr><td>—</td><td>Caixa junto com o mangá Nossas Cores</td>
+        <td>12/2025</td><td>R$ 224,50</td></tr>
+    </table>"""
+
+    parsed = parse_bbm_page(html, "O Marido do Meu Irmão")
+
+    assert parsed["volume_parse_complete"] is True
+    publication = parsed["publications"][0]
+    assert publication["name"] == "Caixa junto com o mangá Nossas Cores"
+    assert publication["source_key"].endswith("caixa_junto_com_o_manga_nossas_cores")
+    assert publication["format_type"] == "box_set"
+    assert publication["volumes"][0]["title"] == publication["name"]
+    assert publication["volumes"][0]["release_date"] == "12/2025"
+    assert publication["volumes"][0]["price_amount"] == Decimal("224.50")
+
+
+def test_parser_preserves_non_volume_sample_as_source_evidence():
+    html = """<table>
+      <tr><th>Vol.</th><th>Japão</th><th>Brasil</th><th>Preço</th></tr>
+      <tr><td># 01</td><td>2010</td><td>05/08/2020</td><td>R$ 29,90</td></tr>
+      <tr><td>Amostra</td><td>Dia do Quadrinho Grátis</td>
+        <td>22/11/2025</td><td>Grátis</td></tr>
+    </table>"""
+
+    parsed = parse_bbm_page(html, "The Ancient Magus Bride")
+
+    assert parsed["volume_parse_complete"] is True
+    assert parsed["volume_rows_skipped"] == 0
+    assert len(parsed["volumes"]) == 1
+    evidence = parsed["publications"][0]["format_evidence"]
+    assert "Dia do Quadrinho Grátis" in evidence
+
+
+def test_chapter_only_page_is_a_complete_catalog_sync_without_print_volumes():
+    html = """<table><tr><th>Capítulo</th><th>Data</th></tr>
+    <tr><td>1</td><td>01/01/2025</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "Webtoon sem edição impressa")
+
+    assert parsed["chapter_table_found"] is True
+    assert parsed["volume_table_found"] is False
+    assert parsed["volumes"] == []
+    assert parsed["volume_parse_complete"] is True
+
+
+def test_parser_keeps_compilation_and_special_chapter_release_data():
+    html = """<table><tr><th>Vol.</th><th>Brasil</th><th>Preço</th></tr>
+    <tr><td>Comp.</td><td>1999</td><td>R$ 6,90</td></tr>
+    <tr><td>Capítulo Especial</td><td>12/02/2020</td><td>R$ 12,90</td></tr>
+    <tr><td>Etc.</td><td>—</td><td>—</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "Obra com itens especiais")
+
+    assert parsed["volume_rows_skipped"] == 0
+    special_publications = parsed["publications"]
+    assert [item["name"] for item in special_publications] == [
+        "Comp.",
+        "Capítulo Especial",
+    ]
+    assert [item["volumes"][0]["price_amount"] for item in special_publications] == [
+        Decimal("6.90"),
+        Decimal("12.90"),
+    ]
+    assert parsed["volume_parse_complete"] is True
+
+
+def test_parser_captures_kit_and_set_rows_as_box_publications():
+    html = """<table><tr><th>Vol.</th><th>Descrição</th><th>Brasil</th><th>Preço</th></tr>
+    <tr><td>—</td><td>Kit – #01 e #02</td><td>12/2026</td><td>R$ 95,90</td></tr>
+    <tr><td>#conjunto</td><td>—</td><td>23/06/2022</td><td>R$ 119,00</td></tr>
+    <tr><td>—</td><td>Pack especial com volumes #01 e #02</td>
+    <td>16/03/2020</td><td>R$ 24,90</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "Obra com conjuntos")
+
+    boxes = [
+        publication
+        for publication in parsed["publications"]
+        if publication["format_type"] == "box_set"
+    ]
+    assert len(boxes) == 3
+    assert boxes[0]["name"] == "Kit – #01 e #02"
+    assert boxes[0]["volumes"][0]["price_amount"] == Decimal("95.90")
+    assert boxes[1]["name"] == "#conjunto"
+    assert boxes[1]["volumes"][0]["price_amount"] == Decimal("119.00")
+    assert boxes[2]["name"] == "Pack especial com volumes #01 e #02"
+    assert boxes[2]["volumes"][0]["price_amount"] == Decimal("24.90")
+
+
+def test_parser_ignores_etc_placeholder_rows_without_marking_incomplete():
+    html = """<table><tr><th>Vol.</th><th>Brasil</th><th>Preço</th></tr>
+    <tr><td>#1</td><td>01/01/2020</td><td>R$ 30,00</td></tr>
+    <tr><td>Etc..</td><td>Etc…</td><td>—</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "Obra com linhas de continuação")
+
+    assert parsed["volume_rows_skipped"] == 0
+    assert parsed["volume_parse_complete"] is True
+    assert [volume["number"] for volume in parsed["volumes"]] == [1]
+
+
+def test_parser_merges_repeated_tables_for_the_same_publication():
+    html = """<table><tr><th>Vol.</th><th>Brasil</th><th>Preço</th></tr>
+    <tr><td>#20</td><td>01/01/2020</td><td>R$ 29,90</td></tr></table>
+    <table><tr><th>Vol.</th><th>Brasil</th><th>Preço</th></tr>
+    <tr><td>#20</td><td>01/01/2020</td><td>R$ 49,90</td></tr>
+    <tr><td>#21</td><td>01/02/2020</td><td>R$ 29,90</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "Obra em tabelas repetidas")
+
+    assert len(parsed["publications"]) == 1
+    assert parsed["publications"][0]["source_key"] == "edicao_brasileira"
+    assert [volume["number"] for volume in parsed["volumes"]] == [20, 21]
+    assert parsed["volumes"][0]["price_amount"] == Decimal("29.90")
+    assert parsed["volumes"][0]["variants"][0]["price_amount"] == Decimal("49.90")
+    assert parsed["volume_parse_complete"] is True
+
+
+def test_parser_uses_brazil_column_volume_number_for_merged_japanese_volume_cell():
+    html = """<table><tr><th>Vol.</th><th>Japão</th><th>Brasil</th><th>Preço</th></tr>
+    <tr><td>#01 #02 #03 #04</td><td>datas japonesas</td>
+      <td>#01 – 29/11/2023</td><td>R$ 129,90</td></tr>
+    <tr><td>#01 #02 #03 #04</td><td>datas japonesas</td>
+      <td>#02 – 11/06/2024</td><td>R$ 129,90</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "Obra em volumes compilados")
+
+    assert [volume["number"] for volume in parsed["volumes"]] == [1, 2]
+    assert [volume["release_date"] for volume in parsed["volumes"]] == [
+        "29/11/2023",
+        "11/06/2024",
+    ]
+    assert parsed["volume_parse_complete"] is True
+
+
+def test_parser_infers_brazilian_volume_sequence_from_grouped_release_rows():
+    html = """<table><tr><th>Vol.</th><th>Japão</th><th>Brasil</th><th>Preço</th></tr>
+    <tr><td>#01 #02 #03 #04 #05 #06</td><td>datas japonesas</td>
+      <td>11/05/2026</td><td>R$ 99,90</td></tr>
+    <tr><td>#01 #02 #03 #04 #05 #06</td><td>datas japonesas</td>
+      <td>18/06/2026</td><td>R$ 99,90</td></tr>
+    <tr><td>#01 #02 #03 #04 #05 #06</td><td>datas japonesas</td>
+      <td>18/06/2026</td><td>R$ 99,90</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "Obra compilada em grupos")
+
+    assert [volume["number"] for volume in parsed["volumes"]] == [1, 2]
+    assert [volume["release_date"] for volume in parsed["volumes"]] == [
+        "11/05/2026",
+        "18/06/2026",
+    ]
+    assert parsed["volume_parse_complete"] is True
+
+
+def test_parser_extracts_variant_name_from_brazil_release_cell():
+    html = """<table><tr><th>Vol.</th><th>Japão</th><th>Brasil</th><th>Preço</th></tr>
+    <tr><td>#01</td><td>04/12/2020</td><td>Capa Comum: 13/05/2022</td><td>R$ 34,90</td></tr>
+    <tr><td>#01</td><td>04/12/2020</td><td>Capa Variante: 13/05/2022</td><td>R$ 42,90</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "Obra com capa variante")
+    volume = parsed["volumes"][0]
+
+    assert volume["release_date"] == "13/05/2022"
+    assert volume["price_amount"] == Decimal("34.90")
+    assert volume["variants"][0]["name"] == "Capa Variante"
+    assert volume["variants"][0]["price_amount"] == Decimal("42.90")
+    assert parsed["volume_parse_complete"] is True
+
+
+def test_parser_ignores_jojo_part_headings_inside_volume_table():
+    html = """<table><tr><th>Vol.</th><th>Japão</th><th>Brasil</th><th>Preço</th></tr>
+    <tr><td>#01</td><td>15/02/2002</td><td>07/2018</td><td>R$ 29,90</td></tr>
+    <tr><td>BATTLE TENDENCY</td><td>PARTE 2: BATTLE TENDENCY</td>
+      <td>PARTE 2: BATTLE TENDENCY</td><td>PARTE 2: BATTLE TENDENCY</td></tr>
+    <tr><td>#02</td><td>15/02/2002</td><td>09/2018</td><td>R$ 29,90</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "JoJo's Bizarre Adventure")
+
+    assert [volume["number"] for volume in parsed["volumes"]] == [1, 2]
+    assert parsed["conflicting_volume_numbers"] == []
+    assert parsed["volume_parse_complete"] is True
+
+
+def test_parser_starts_a_separate_publication_for_each_manga_part():
+    html = """<table><tr><th>Vol.</th><th>Brasil</th><th>Preço</th></tr>
+    <tr><td colspan="3">PARTE 1 – PHANTOM BLOOD</td></tr>
+    <tr><td>#01</td><td>07/2018</td><td>R$ 29,90</td></tr>
+    <tr><td>#02</td><td>09/2018</td><td>R$ 29,90</td></tr>
+    <tr><td colspan="3">PARTE 2: BATTLE TENDENCY</td></tr>
+    <tr><td>#01</td><td>12/2026</td><td>R$ 46,90</td></tr>
+    <tr><td>#01</td><td>Ed. Especial: 12/2026</td><td>R$ 99,90</td></tr>
+    <tr><td>#02</td><td>01/2027</td><td>R$ 46,90</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "JoJo's Bizarre Adventure")
+
+    parts = [
+        publication
+        for publication in parsed["publications"]
+        if publication["name"].startswith("PARTE")
+    ]
+    assert len(parts) == 2
+    assert [len(publication["volumes"]) for publication in parts] == [2, 2]
+    part_two_volume_one = parts[1]["volumes"][0]
+    assert part_two_volume_one["variants"][0]["name"] == "Ed. Especial"
+    assert parsed["conflicting_volume_numbers"] == []
+    assert parsed["volume_parse_complete"] is True
+
+
+def test_parser_uses_declared_brazilian_volume_count_when_html_has_no_volume_table():
+    html = """<p>Título nacional: As Aventuras Elétricas de Pikachu</p>
+    <p>Volumes no Brasil: 4*</p><p>Formato: 17 x 26 cm</p>
+    <p>Foram publicados quatro volumes em formato de revista.</p>
+    <p>Preço: R$ 2,50</p>"""
+
+    parsed = parse_bbm_page(html, "As Aventuras Elétricas de Pikachu")
+
+    assert [volume["number"] for volume in parsed["volumes"]] == [1, 2, 3, 4]
+    assert all(
+        volume["price_amount"] == Decimal("2.50") for volume in parsed["volumes"]
+    )
+    assert parsed["publications"][0]["format_type"] == "other"
+    assert parsed["publications"][0]["format_label"] == "Revista"
+    assert parsed["volume_parse_complete"] is True
+
+
+def test_parser_uses_single_volume_schedule_without_a_volume_column():
+    html = """<p>Nº de volumes no Brasil: 1</p><p>Preço: R$ 15,90</p>
+    <table><tr><th>Data no Japão</th><th>Data no Brasil</th><th>Preço</th></tr>
+    <tr><td>10/09/2012</td><td>Julho de 2016</td><td>R$ 15,90</td></tr></table>"""
+
+    parsed = parse_bbm_page(html, "The Wedding Eve")
+
+    assert len(parsed["volumes"]) == 1
+    assert parsed["volumes"][0]["release_date"] == "07/2016"
+    assert parsed["volumes"][0]["price_amount"] == Decimal("15.90")
+    assert parsed["volume_parse_complete"] is True
+
+
+def test_parser_recognizes_bbm_genre_index_pages_as_non_volume_catalog_entries():
+    parsed = parse_bbm_page('<p>[child_pages cols="2"]</p>', "Yuri")
+
+    assert parsed["catalog_index_page"] is True
+    assert parsed["volumes"] == []
+    assert parsed["volume_parse_complete"] is True
+
+
 def test_metadata_table_does_not_mask_single_volume_table():
     html = """<table>
       <tr><td>Nº de volumes no Brasil: 1</td><td></td></tr>

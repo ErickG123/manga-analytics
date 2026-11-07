@@ -402,7 +402,11 @@ class ImportService:
                             f"linhas duplicadas com dados diferentes: {conflicts}"
                         )
                     if not parsed.get("volume_table_found", False):
-                        reasons.append("tabela de volumes não encontrada")
+                        reasons.append(
+                            "tabela de capítulos encontrada, sem lista de volumes impressos"
+                            if parsed.get("chapter_table_found", False)
+                            else "tabela de volumes não encontrada"
+                        )
                     elif parsed.get("volume_rows_skipped", 0):
                         reasons.append(
                             f"{parsed['volume_rows_skipped']} linha(s) sem número identificável"
@@ -454,7 +458,16 @@ class ImportService:
                     ],
                 )
                 validation_started = time.perf_counter()
-                for volume in manga.volumes:
+                volumes_to_validate = (
+                    [
+                        volume
+                        for publication in manga.publications
+                        for volume in publication.volumes
+                    ]
+                    if manga.publications
+                    else manga.volumes
+                )
+                for volume in volumes_to_validate:
                     records = [
                         ("volume", volume),
                         *[(variant.name, variant) for variant in volume.variants],

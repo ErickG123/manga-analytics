@@ -22,20 +22,22 @@ Os volumes carregam `editionId`, nome e tipo da edição nos DTOs do catálogo. 
 
 ## Taxonomia
 
-| `formatType`   | Interpretação                                                                             |
-| -------------- | ----------------------------------------------------------------------------------------- |
-| `regular`      | Edição regular/padrão explicitamente indicada.                                            |
-| `two_in_one`   | Um livro compila dois volumes originais.                                                  |
-| `three_in_one` | Um livro compila três volumes originais.                                                  |
-| `omnibus`      | Omnibus explicitamente indicado, sem inferir a quantidade compilada quando não declarada. |
-| `definitive`   | Edição definitiva explicitamente indicada.                                                |
-| `deluxe`       | Edição Deluxe explicitamente indicada.                                                    |
-| `other`        | Outro formato editorial reconhecido, sem categoria mais específica.                       |
-| `unknown`      | Evidência insuficiente para classificar. Não significa formato regular.                   |
+| `formatType`      | Interpretação                                                                             |
+| ----------------- | ----------------------------------------------------------------------------------------- |
+| `regular`         | Edição regular/padrão explicitamente indicada.                                            |
+| `two_in_one`      | Um livro compila dois volumes originais.                                                  |
+| `three_in_one`    | Um livro compila três volumes originais.                                                  |
+| `omnibus`         | Omnibus explicitamente indicado, sem inferir a quantidade compilada quando não declarada. |
+| `definitive`      | Edição definitiva explicitamente indicada.                                                |
+| `deluxe`          | Edição Deluxe explicitamente indicada.                                                    |
+| `box_set`         | Box/conjunto de volumes vendido como publicação própria, com preço e data próprios.       |
+| `digital_edition` | Edição digital explicitamente identificada pela fonte, separada da edição impressa.       |
+| `other`           | Outro formato editorial reconhecido, sem categoria mais específica.                       |
+| `unknown`         | Evidência insuficiente para classificar. Não significa formato regular.                   |
 
 ## Como a fonte é interpretada
 
-O parser percorre todas as tabelas de volumes da ficha e associa cada uma ao cabeçalho de publicação mais próximo. Para cada tabela, extrai suas próprias linhas, links e texto de contexto. Expressões no título, metadados da publicação e links dos produtos são sinais para 2 em 1/3 em 1; “omnibus”, “definitiva”, “deluxe” e indicações explícitas de regular também são reconhecidas. O texto de formato físico é salvo em campo separado. Cada classificação fica acompanhada por `formatEvidence` para permitir auditoria.
+O parser percorre todas as tabelas de volumes da ficha e associa cada uma ao cabeçalho de publicação mais próximo. Para cada tabela, expande `rowspan` e `colspan` antes de ler as linhas para manter os valores compartilhados alinhados aos volumes. Expressões no título, metadados da publicação e links dos produtos são sinais para 2 em 1/3 em 1; “omnibus”, “definitiva”, “deluxe”, “box” e indicações explícitas de regular também são reconhecidas. Uma linha sem número que identifique explicitamente `Box` é salva como publicação `box_set`, com seu próprio registro, data e preço; ela não é anexada a um volume convencional. Cabeçalhos “Edição Digital” criam uma publicação separada `digital_edition`, para não misturar preços digitais com impressos. Se a página declarar exatamente um volume brasileiro e a tabela usar apenas `#`, o volume é identificado como número 1. Cabeçalhos de seção mesclados em todas as colunas são guardados como evidência, sem serem contados como linhas inválidas. Cada classificação fica acompanhada por `formatEvidence` para permitir auditoria.
 
 A heurística não afirma que toda página BBM descreve o formato de maneira completa. Quando não há evidência clara, o registro continua `unknown`; não se inventa o número de volumes compilados. Cabeçalhos repetidos podem precisar de curadoria se a fonte não nomear publicações de modo estável. Os testes usam fixtures e verificam o isolamento das tabelas, valores e metadados.
 

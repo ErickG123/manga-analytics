@@ -128,4 +128,9 @@ describe('DetailPageComponent', () => {
   it('usa volume convencional como rótulo padrão para formato sem classificação', () => {
     expect(fixture.componentInstance.formatTypeLabel('unknown')).toBe('Volume convencional');
   });
+
+  it('identifica box como formato editorial próprio', () => {
+    expect(fixture.componentInstance.formatTypeLabel('box_set')).toBe('Box');
+    expect(fixture.componentInstance.formatTypeLabel('digital_edition')).toBe('Edição digital');
+  });
 });

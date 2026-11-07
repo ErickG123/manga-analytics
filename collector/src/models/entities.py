@@ -16,6 +16,8 @@ EditionFormatType = Literal[
     "omnibus",
     "definitive",
     "deluxe",
+    "box_set",
+    "digital_edition",
     "other",
     "unknown",
 ]

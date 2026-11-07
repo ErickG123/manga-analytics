@@ -8,12 +8,17 @@ import {
   OneToMany,
   JoinColumn,
   Index,
+  Check,
 } from 'typeorm';
 import { Manga } from './manga.entity.js';
 import { Publisher } from './publisher.entity.js';
 import { Volume } from './volume.entity.js';
 
 @Entity('editions')
+@Check(
+  'CHK_editions_format_type',
+  `"formatType" IN ('regular', 'two_in_one', 'three_in_one', 'omnibus', 'definitive', 'deluxe', 'box_set', 'digital_edition', 'other', 'unknown')`,
+)
 @Index(
   'IDX_editions_manga_publisher_source_key_unique',
   ['mangaId', 'publisherId', 'sourceEditionKey'],

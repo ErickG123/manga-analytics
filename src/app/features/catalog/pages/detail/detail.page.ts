@@ -125,6 +125,10 @@ export class DetailPageComponent {
         return 'Edição definitiva';
       case 'deluxe':
         return 'Deluxe';
+      case 'box_set':
+        return 'Box';
+      case 'digital_edition':
+        return 'Edição digital';
       case 'other':
         return 'Outro formato';
       default:

@@ -134,6 +134,8 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     { label: 'Omnibus', value: 'omnibus' },
     { label: 'Edição definitiva', value: 'definitive' },
     { label: 'Deluxe', value: 'deluxe' },
+    { label: 'Box', value: 'box_set' },
+    { label: 'Edição digital', value: 'digital_edition' },
     { label: 'Outro formato', value: 'other' },
     { label: 'Volume convencional', value: 'unknown' },
   ];

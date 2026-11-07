@@ -157,6 +157,11 @@ describe('AnalyticsPageComponent', () => {
     expect(component.formatSummary().editions).toBe(922);
     expect(component.editionsByFormat()[0].mangaCount).toBe(921);
     expect(component.editionsByFormat()[0].volumesCount).toBe(6158);
+    expect(component.formatOptions).toContainEqual({ label: 'Box', value: 'box_set' });
+    expect(component.formatOptions).toContainEqual({
+      label: 'Edição digital',
+      value: 'digital_edition',
+    });
     fixture.destroy();
   });
 });

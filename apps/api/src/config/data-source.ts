@@ -26,6 +26,8 @@ import { AddCollectorRecoveryUniqueIndexes1762300000000 } from '../migrations/17
 import { SeparateAdminTriggerJobs1762310000000 } from '../migrations/1762310000000-SeparateAdminTriggerJobs.js';
 import { AddCollectorSyncWindows1793968613189 } from '../migrations/1793968613189-AddCollectorSyncWindows.js';
 import { AddEditionFormatMetadata1793971000000 } from '../migrations/1793971000000-AddEditionFormatMetadata.js';
+import { AddBoxSetEditionFormat1793972000000 } from '../migrations/1793972000000-AddBoxSetEditionFormat.js';
+import { AddDigitalEditionFormat1793973000000 } from '../migrations/1793973000000-AddDigitalEditionFormat.js';
 import { ExpandMangaAuthorCredits1794000000000 } from '../migrations/1794000000000-ExpandMangaAuthorCredits.js';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
@@ -64,6 +66,8 @@ export const AppDataSource = new DataSource({
     SeparateAdminTriggerJobs1762310000000,
     AddCollectorSyncWindows1793968613189,
     AddEditionFormatMetadata1793971000000,
+    AddBoxSetEditionFormat1793972000000,
+    AddDigitalEditionFormat1793973000000,
     ExpandMangaAuthorCredits1794000000000,
   ],
   migrationsRun: true,

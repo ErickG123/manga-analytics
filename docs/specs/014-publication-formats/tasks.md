@@ -6,6 +6,7 @@
 - [x] Persistir volumes, preços e variantes por publicação.
 - [x] Expor metadados na API e filtros/agregações analíticas.
 - [x] Atualizar detalhe da obra e gráficos/indicadores por formato.
+- [x] Expandir células mescladas em tabelas e persistir `Box`/`EDIÇÃO DIGITAL` como publicações próprias.
 - [x] Atualizar README e documentos de arquitetura, coleta, dados e backup.
 - [x] Rodar testes unitários, cobertura e validação da persistência PostgreSQL em banco isolado.
 - [ ] Completar o reprocessamento do catálogo respeitando rate limit, revisar erros e gerar dump final.

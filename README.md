@@ -16,7 +16,7 @@ Aplicação para catalogar mangás publicados no Brasil, acompanhar volumes e la
 
 Uma **obra** é o título catalogado. Uma obra pode ter várias **publicações/edições brasileiras** (por exemplo, publicação regular e edição 2 em 1); cada edição pertence a uma editora e recebe volumes próprios. Um volume pode ter variantes físicas/comerciais, como blind pack, e preços observados. A edição registra o formato editorial, a descrição física publicada pela fonte, quantos volumes originais são compilados em cada livro quando conhecido e o texto usado como evidência.
 
-Os tipos editoriais normalizados são `regular`, `two_in_one`, `three_in_one`, `omnibus`, `definitive`, `deluxe`, `other` e `unknown`. `unknown` significa que a página consultada não permitiu classificar com segurança; não deve ser lido como formato regular. Detalhes e limites estão em [Formatos de publicação](docs/data/publication-formats.md).
+Os tipos editoriais normalizados são `regular`, `two_in_one`, `three_in_one`, `omnibus`, `definitive`, `deluxe`, `box_set`, `digital_edition`, `other` e `unknown`. `unknown` significa que a página consultada não permitiu classificar com segurança; não deve ser lido como formato regular. Detalhes e limites estão em [Formatos de publicação](docs/data/publication-formats.md).
 
 Preço de capa informado junto ao lançamento não é uma série histórica garantida. O timestamp de observação registra quando o Collector consultou a fonte, não quando a editora reajustou o preço. Veja [acesso e semântica dos dados](docs/architecture/data-access.md).
 
