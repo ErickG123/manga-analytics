@@ -103,6 +103,10 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
   readonly loading = signal(false);
   readonly error = signal('');
   readonly fullscreenChart = signal<string | null>(null);
+
+  readonly monthlyYearFilter = signal<number | null>(null);
+  readonly timelinePublisherFilter = signal<string>('');
+
   readonly statusOptions = [
     { label: 'Todas', value: '' },
     { label: 'Lançado', value: 'released' },
@@ -125,6 +129,7 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     { label: 'Outro formato', value: 'other' },
     { label: 'Volume convencional', value: 'unknown' },
   ];
+
   readonly formatSummary = computed(() => {
     const rows = this.editionsByFormat();
     const editions = rows.reduce((sum, row) => sum + row.editionsCount, 0);
@@ -136,23 +141,73 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       coverage: editions ? Math.max(0, editions - unknown) / editions : null,
     };
   });
+
   readonly periodValid = computed(() => {
     const from = this.yearFrom();
     const to = this.yearTo();
     return from >= 1900 && to <= 2100 && to >= from && to - from <= 19;
   });
+
   readonly topPublishers = computed(() =>
     [...this.pricesByPublisher()]
       .sort((left, right) => right.volumesCount - left.volumesCount)
       .slice(0, 12),
   );
+
   readonly hasPublisherPrices = computed(() =>
     this.topPublishers().some((publisher) => publisher.averagePrice !== null),
   );
+
   readonly hasMonthlyReleases = computed(() =>
     this.releasesByMonth().some((month) => month.count > 0),
   );
+
+  readonly availableMonthlyYears = computed(() => {
+    const years = new Set(
+      this.releasesByMonth()
+        .filter((m) => m.count > 0)
+        .map((m) => m.year),
+    );
+    return Array.from(years).sort((a, b) => b - a);
+  });
+
+  readonly monthlyYearOptions = computed(() => [
+    { label: 'Todos os anos', value: null },
+    ...this.availableMonthlyYears().map((year) => ({ label: `Ano ${year}`, value: year })),
+  ]);
+
+  readonly activeMonthlyReleases = computed(() => {
+    const all = this.releasesByMonth();
+    const selectedYear = this.monthlyYearFilter();
+    if (selectedYear !== null) {
+      return all.filter((m) => m.year === selectedYear);
+    }
+    const firstIdx = all.findIndex((m) => m.count > 0);
+    if (firstIdx === -1) return [];
+    let lastIdx = all.length - 1;
+    while (lastIdx > firstIdx && all[lastIdx].count === 0) {
+      lastIdx--;
+    }
+    return all.slice(firstIdx, lastIdx + 1);
+  });
+
+  readonly timelinePublisherOptions = computed(() => {
+    const rows = this.publisherReleaseMonths();
+    const map = new Map<string, { id: string; name: string; count: number }>();
+    for (const r of rows) {
+      const cur = map.get(r.publisherId) ?? { id: r.publisherId, name: r.publisher, count: 0 };
+      cur.count += r.count;
+      map.set(r.publisherId, cur);
+    }
+    const list = Array.from(map.values()).sort((a, b) => b.count - a.count);
+    return [
+      { label: 'Todas as principais (comparar)', value: '' },
+      ...list.slice(0, 10).map((p) => ({ label: `${p.name} (${p.count} vol.)`, value: p.id })),
+    ];
+  });
+
   readonly hasYearlyPrices = computed(() => this.yearlyPriceRows().length > 0);
+
   readonly yearlyPriceRows = computed(() =>
     [...this.pricesByYear()]
       .filter(
@@ -160,12 +215,14 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       )
       .sort((left, right) => left.year - right.year),
   );
+
   readonly rankedManga = computed(() =>
     [...this.pricesByManga()]
       .filter((item) => item.averagePrice !== null && item.sampleSize >= 5)
       .sort((left, right) => (right.averagePrice ?? 0) - (left.averagePrice ?? 0))
       .slice(0, 10),
   );
+
   readonly publisherChartEl = viewChild<ElementRef<HTMLDivElement>>('publisherChart');
   readonly coverageChartEl = viewChild<ElementRef<HTMLDivElement>>('coverageChart');
   readonly releaseChartEl = viewChild<ElementRef<HTMLDivElement>>('releaseChart');
@@ -312,6 +369,16 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     this.scheduleFilterLoad(false);
   }
 
+  setMonthlyYearFilter(year: number | null): void {
+    this.monthlyYearFilter.set(year);
+    this.renderMonthlyReleasesChart();
+  }
+
+  setTimelinePublisherFilter(publisherId: string): void {
+    this.timelinePublisherFilter.set(publisherId);
+    this.renderPublisherTimeline();
+  }
+
   private scheduleFilterLoad(refreshYearRange: boolean): void {
     if (this.filterTimer) clearTimeout(this.filterTimer);
     this.requestId += 1;
@@ -355,6 +422,8 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
     this.hasPrice.set('');
     this.formatType.set('');
     this.manga.set('');
+    this.monthlyYearFilter.set(null);
+    this.timelinePublisherFilter.set('');
     this.filtersChanged();
   }
 
@@ -381,29 +450,370 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
 
   private renderCharts(): void {
     for (const chart of this.charts.splice(0)) chart.dispose();
-    const publishers = this.topPublishers();
-    this.renderBar(
-      this.publisherChartEl()?.nativeElement,
-      publishers.map((row) => row.name),
-      publishers.map((row) => row.averagePrice),
-      'Preço médio (R$)',
-      'currency',
+    this.renderPublisherPricesChart();
+    this.renderPublisherCoverageChart();
+    this.renderMonthlyReleasesChart();
+    this.renderYearReleasesChart();
+    this.renderPriceBandsChart();
+    this.renderPublisherTimeline();
+    this.renderYearlyPrices();
+    this.renderFormatChart();
+  }
+
+  private renderPublisherPricesChart(): void {
+    const el = this.publisherChartEl()?.nativeElement;
+    const publishers = [...this.topPublishers()].filter((p) => p.averagePrice !== null).reverse();
+    if (!el || !publishers.length) return;
+    this.observeChartSize(el);
+    const chart = echarts.init(el);
+    this.charts.push(chart);
+
+    chart.setOption({
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        backgroundColor: '#20212b',
+        borderColor: '#424451',
+        textStyle: { color: '#f4f4f6' },
+        formatter: (params: unknown) => {
+          const item = (params as { dataIndex: number }[])[0];
+          const pub = publishers[item.dataIndex];
+          if (!pub) return '';
+          return `
+            <div style="font-weight:700;margin-bottom:4px;color:#fff;">${pub.name}</div>
+            <div style="color:#ef737b;">Preço médio: <strong>${this.formatChartValue(pub.averagePrice, 'currency')}</strong></div>
+            <div style="color:#aaa;font-size:12px;margin-top:2px;">Com preço: <strong>${pub.sampleSize}</strong> de <strong>${pub.volumesCount}</strong> volumes</div>
+            <div style="color:#aaa;font-size:12px;">Cobertura: <strong>${pub.priceCoverage !== null ? (pub.priceCoverage * 100).toFixed(1) + '%' : 'Sem dados'}</strong></div>
+          `;
+        },
+      },
+      grid: { left: 16, right: 28, bottom: 20, top: 20, containLabel: true },
+      xAxis: {
+        type: 'value',
+        axisLabel: {
+          color: '#aaa',
+          formatter: (value: number) => this.formatChartValue(value, 'currency'),
+        },
+        splitLine: { lineStyle: { color: '#252632' } },
+      },
+      yAxis: {
+        type: 'category',
+        data: publishers.map((p) => p.name),
+        axisLine: { lineStyle: { color: '#444' } },
+        axisLabel: {
+          color: '#eaeaf0',
+          fontSize: 12,
+          fontWeight: 500,
+        },
+      },
+      series: [
+        {
+          name: 'Preço médio (R$)',
+          type: 'bar',
+          data: publishers.map((p) => p.averagePrice),
+          itemStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+              { offset: 0, color: '#dc2626' },
+              { offset: 1, color: '#ef737b' },
+            ]),
+            borderRadius: [0, 4, 4, 0],
+          },
+        },
+      ],
+    });
+  }
+
+  private renderPublisherCoverageChart(): void {
+    const el = this.coverageChartEl()?.nativeElement;
+    const publishers = [...this.topPublishers()].filter((p) => p.priceCoverage !== null).reverse();
+    if (!el || !publishers.length) return;
+    this.observeChartSize(el);
+    const chart = echarts.init(el);
+    this.charts.push(chart);
+
+    chart.setOption({
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        backgroundColor: '#20212b',
+        borderColor: '#424451',
+        textStyle: { color: '#f4f4f6' },
+        formatter: (params: unknown) => {
+          const item = (params as { dataIndex: number }[])[0];
+          const pub = publishers[item.dataIndex];
+          if (!pub) return '';
+          return `
+            <div style="font-weight:700;margin-bottom:4px;color:#fff;">${pub.name}</div>
+            <div style="color:#34d399;">Cobertura: <strong>${(pub.priceCoverage! * 100).toFixed(1)}%</strong></div>
+            <div style="color:#aaa;font-size:12px;margin-top:2px;">Com preço: <strong>${pub.sampleSize}</strong> de <strong>${pub.volumesCount}</strong> volumes</div>
+          `;
+        },
+      },
+      grid: { left: 16, right: 36, bottom: 20, top: 20, containLabel: true },
+      xAxis: {
+        type: 'value',
+        min: 0,
+        max: 100,
+        axisLabel: {
+          color: '#aaa',
+          formatter: '{value}%',
+        },
+        splitLine: { lineStyle: { color: '#252632' } },
+      },
+      yAxis: {
+        type: 'category',
+        data: publishers.map((p) => p.name),
+        axisLine: { lineStyle: { color: '#444' } },
+        axisLabel: {
+          color: '#eaeaf0',
+          fontSize: 12,
+          fontWeight: 500,
+        },
+      },
+      series: [
+        {
+          name: 'Cobertura (%)',
+          type: 'bar',
+          data: publishers.map((p) => (p.priceCoverage === null ? null : p.priceCoverage * 100)),
+          itemStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+              { offset: 0, color: '#059669' },
+              { offset: 1, color: '#34d399' },
+            ]),
+            borderRadius: [0, 4, 4, 0],
+          },
+        },
+      ],
+    });
+  }
+
+  private renderMonthlyReleasesChart(): void {
+    const el = this.releaseChartEl()?.nativeElement;
+    const months = this.activeMonthlyReleases();
+    if (!el || !months.length) return;
+    this.observeChartSize(el);
+    let chart = echarts.getInstanceByDom(el);
+    if (!chart) {
+      chart = echarts.init(el);
+      this.charts.push(chart);
+    }
+
+    const labels = months.map((m) => m.label);
+    const values = months.map((m) => m.count);
+
+    chart.setOption({
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#20212b',
+        borderColor: '#424451',
+        textStyle: { color: '#f4f4f6' },
+        formatter: (params: unknown) => {
+          const item = (params as { dataIndex: number }[])[0];
+          const m = months[item.dataIndex];
+          if (!m) return '';
+          return `
+            <div style="font-weight:700;margin-bottom:4px;color:#fff;">Mês: ${m.label}</div>
+            <div style="color:#ef737b;">Lançamentos informados: <strong>${m.count}</strong> volumes</div>
+          `;
+        },
+      },
+      grid: {
+        left: 16,
+        right: 20,
+        bottom: labels.length > 24 ? 64 : 40,
+        top: 24,
+        containLabel: true,
+      },
+      xAxis: {
+        type: 'category',
+        data: labels,
+        axisLine: { lineStyle: { color: '#444' } },
+        axisLabel: {
+          color: '#aaa',
+          rotate: labels.length > 16 ? 45 : 0,
+          interval: labels.length > 36 ? 'auto' : 0,
+        },
+      },
+      yAxis: {
+        type: 'value',
+        minInterval: 1,
+        axisLabel: {
+          color: '#aaa',
+          formatter: (val: number) => this.formatChartValue(val, 'count'),
+        },
+        splitLine: { lineStyle: { color: '#252632' } },
+      },
+      dataZoom:
+        labels.length > 24 ? [{ type: 'inside' }, { type: 'slider', height: 18, bottom: 8 }] : [],
+      series: [
+        {
+          name: 'Lançamentos',
+          type: 'line',
+          data: values,
+          connectNulls: false,
+          smooth: true,
+          itemStyle: { color: '#ef737b' },
+          lineStyle: { color: '#ef737b', width: 2.5 },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(239, 115, 123, 0.28)' },
+              { offset: 1, color: 'rgba(239, 115, 123, 0.02)' },
+            ]),
+          },
+        },
+      ],
+    });
+  }
+
+  private renderPublisherTimeline(): void {
+    const el = this.publisherTimelineChartEl()?.nativeElement;
+    if (!el) return;
+    const allLabels = Array.from(
+      { length: this.yearTo() - this.yearFrom() + 1 },
+      (_, index) => this.yearFrom() + index,
+    ).flatMap((year) =>
+      Array.from({ length: 12 }, (_, index) => `${String(index + 1).padStart(2, '0')}/${year}`),
     );
-    this.renderBar(
-      this.coverageChartEl()?.nativeElement,
-      publishers.map((row) => row.name),
-      publishers.map((row) => (row.priceCoverage === null ? null : row.priceCoverage * 100)),
-      'Cobertura (%)',
-      'percent',
-    );
-    this.renderBar(
-      this.releaseChartEl()?.nativeElement,
-      this.releasesByMonth().map((row) => row.label),
-      this.releasesByMonth().map((row) => row.count),
-      'Lançamentos',
-      'count',
-      'line',
-    );
+    const rows = this.publisherReleaseMonths();
+    if (!allLabels.length || !rows.length) return;
+    this.observeChartSize(el);
+
+    const totals = new Map<string, { id: string; name: string; count: number }>();
+    const monthlyCounts = new Map<string, number>();
+    for (const row of rows) {
+      const publisher = totals.get(row.publisherId) ?? {
+        id: row.publisherId,
+        name: row.publisher,
+        count: 0,
+      };
+      publisher.count += row.count;
+      totals.set(row.publisherId, publisher);
+      const monthKey = `${row.publisherId}:${row.year}-${row.month}`;
+      monthlyCounts.set(monthKey, row.count);
+    }
+
+    const ordered = [...totals.values()].sort((left, right) => right.count - left.count);
+    const selectedPublisherFilter = this.timelinePublisherFilter();
+
+    let seriesToRender: {
+      name: string;
+      type: 'line';
+      showSymbol: boolean;
+      smooth: boolean;
+      data: number[];
+      lineStyle?: { color: string; width: number };
+    }[] = [];
+
+    const colors = [
+      '#ef737b',
+      '#4e9fff',
+      '#34d399',
+      '#fbbf24',
+      '#a78bfa',
+      '#f97316',
+      '#38bdf8',
+      '#94a3b8',
+    ];
+
+    if (selectedPublisherFilter) {
+      const targetPub = totals.get(selectedPublisherFilter);
+      if (targetPub) {
+        seriesToRender.push({
+          name: targetPub.name,
+          type: 'line',
+          showSymbol: true,
+          smooth: true,
+          data: allLabels.map((label) => {
+            const [month, year] = label.split('/').map(Number);
+            return monthlyCounts.get(`${targetPub.id}:${year}-${month}`) ?? 0;
+          }),
+          lineStyle: { color: '#ef737b', width: 3 },
+        });
+      }
+    } else {
+      const top7 = ordered.slice(0, 7);
+      const top7Ids = new Set(top7.map((p) => p.id));
+      seriesToRender = top7.map((publisher, idx) => ({
+        name: publisher.name,
+        type: 'line' as const,
+        showSymbol: false,
+        smooth: true,
+        data: allLabels.map((label) => {
+          const [month, year] = label.split('/').map(Number);
+          return monthlyCounts.get(`${publisher.id}:${year}-${month}`) ?? 0;
+        }),
+        lineStyle: { color: colors[idx % colors.length], width: idx === 0 ? 3 : 2 },
+      }));
+
+      const others = ordered.filter((p) => !top7Ids.has(p.id));
+      if (others.length) {
+        seriesToRender.push({
+          name: 'Demais editoras',
+          type: 'line',
+          showSymbol: false,
+          smooth: true,
+          data: allLabels.map((label) => {
+            const [month, year] = label.split('/').map(Number);
+            return rows
+              .filter((r) => !top7Ids.has(r.publisherId) && r.year === year && r.month === month)
+              .reduce((sum, r) => sum + r.count, 0);
+          }),
+          lineStyle: { color: '#64748b', width: 1.5 },
+        });
+      }
+    }
+
+    let chart = echarts.getInstanceByDom(el);
+    if (!chart) {
+      chart = echarts.init(el);
+      this.charts.push(chart);
+    }
+
+    chart.setOption({
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#20212b',
+        borderColor: '#424451',
+        textStyle: { color: '#f4f4f6' },
+        valueFormatter: (value: unknown) => this.formatChartValue(value, 'count'),
+      },
+      legend: {
+        type: 'scroll',
+        textStyle: { color: '#bbb' },
+        pageTextStyle: { color: '#bbb' },
+        pageIconColor: '#ef737b',
+        pageIconInactiveColor: '#555',
+      },
+      grid: { left: 16, right: 20, bottom: 64, top: 48, containLabel: true },
+      xAxis: {
+        type: 'category',
+        data: allLabels,
+        boundaryGap: false,
+        axisLabel: { color: '#aaa', rotate: allLabels.length > 24 ? 45 : 0, interval: 'auto' },
+        axisLine: { lineStyle: { color: '#444' } },
+      },
+      yAxis: {
+        type: 'value',
+        minInterval: 1,
+        axisLabel: {
+          color: '#aaa',
+          formatter: (value: number) => this.formatChartValue(value, 'count'),
+        },
+        splitLine: { lineStyle: { color: '#252632' } },
+      },
+      dataZoom:
+        allLabels.length > 24
+          ? [{ type: 'inside' }, { type: 'slider', height: 18, bottom: 8 }]
+          : [],
+      series: seriesToRender,
+    });
+  }
+
+  private renderYearReleasesChart(): void {
     this.renderBar(
       this.yearChartEl()?.nativeElement,
       this.releasesByYear().map((row) => String(row.year)),
@@ -411,6 +821,9 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       'Lançamentos',
       'count',
     );
+  }
+
+  private renderPriceBandsChart(): void {
     this.renderBar(
       this.bandsChartEl()?.nativeElement,
       this.priceBands().map((row) => row.band),
@@ -418,8 +831,9 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       'Volumes',
       'count',
     );
-    this.renderPublisherTimeline();
-    this.renderYearlyPrices();
+  }
+
+  private renderFormatChart(): void {
     this.renderBar(
       this.formatChartEl()?.nativeElement,
       this.editionsByFormat().map((row) => row.label),
@@ -427,6 +841,77 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
       'Publicações',
       'count',
     );
+  }
+
+  private renderYearlyPrices(): void {
+    const el = this.priceYearChartEl()?.nativeElement;
+    if (!el) return;
+    const rows = this.yearlyPriceRows();
+    const labels = rows.map((row) => row.year);
+    if (!labels.length || !rows.length) return;
+    this.observeChartSize(el);
+    const chart = echarts.init(el);
+    this.charts.push(chart);
+    chart.setOption({
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#20212b',
+        borderColor: '#424451',
+        textStyle: { color: '#f4f4f6' },
+        formatter: (params: unknown) => {
+          const items = params as { seriesName: string; value: number; dataIndex: number }[];
+          const row = rows[items[0]?.dataIndex ?? 0];
+          let out = `<div style="font-weight:700;margin-bottom:6px;color:#fff;">Ano de lançamento: ${row?.year}</div>`;
+          for (const it of items) {
+            const color = it.seriesName === 'Preço médio' ? '#ef737b' : '#38bdf8';
+            out += `<div style="color:${color};margin-bottom:2px;">${it.seriesName}: <strong>${this.formatChartValue(it.value, 'currency')}</strong></div>`;
+          }
+          if (row) {
+            out += `<div style="color:#aaa;font-size:12px;margin-top:4px;">Amostra: <strong>${row.sampleSize}</strong> com preço (${row.volumesCount} no total)</div>`;
+          }
+          return out;
+        },
+      },
+      legend: { textStyle: { color: '#bbb' } },
+      grid: { left: 16, right: 24, bottom: 36, top: 42, containLabel: true },
+      xAxis: {
+        type: 'category',
+        data: labels,
+        axisLabel: { color: '#aaa', fontSize: 12 },
+        axisLine: { lineStyle: { color: '#444' } },
+      },
+      yAxis: {
+        type: 'value',
+        axisLabel: {
+          color: '#aaa',
+          formatter: (value: number) => this.formatChartValue(value, 'currency'),
+        },
+        splitLine: { lineStyle: { color: '#252632' } },
+      },
+      series: [
+        {
+          name: 'Preço médio',
+          type: 'line',
+          data: rows.map((row) => row.averagePrice),
+          showSymbol: true,
+          symbolSize: 7,
+          connectNulls: false,
+          lineStyle: { color: '#ef737b', width: 3 },
+          itemStyle: { color: '#ef737b' },
+        },
+        {
+          name: 'Mediana',
+          type: 'line',
+          data: rows.map((row) => row.medianPrice),
+          showSymbol: true,
+          symbolSize: 6,
+          connectNulls: false,
+          lineStyle: { color: '#38bdf8', width: 2.5 },
+          itemStyle: { color: '#38bdf8' },
+        },
+      ],
+    });
   }
 
   private renderBar(
@@ -465,7 +950,7 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
           color: '#aaa',
           formatter: (value: number) => this.formatChartValue(value, format),
         },
-        splitLine: { lineStyle: { color: '#222' } },
+        splitLine: { lineStyle: { color: '#252632' } },
       },
       series: [
         {
@@ -474,173 +959,9 @@ export class AnalyticsPageComponent implements OnInit, OnDestroy {
           data: values,
           connectNulls: false,
           smooth: false,
-          itemStyle: { color: '#dc2626', borderRadius: type === 'bar' ? [4, 4, 0, 0] : 0 },
-          lineStyle: { color: '#dc2626', width: 3 },
-          areaStyle: type === 'line' ? { color: 'rgba(220,38,38,.16)' } : undefined,
-        },
-      ],
-    });
-  }
-
-  private renderPublisherTimeline(): void {
-    const el = this.publisherTimelineChartEl()?.nativeElement;
-    if (!el) return;
-    const labels = Array.from(
-      { length: this.yearTo() - this.yearFrom() + 1 },
-      (_, index) => this.yearFrom() + index,
-    ).flatMap((year) =>
-      Array.from({ length: 12 }, (_, index) => `${String(index + 1).padStart(2, '0')}/${year}`),
-    );
-    const rows = this.publisherReleaseMonths();
-    if (!labels.length || !rows.length) return;
-    this.observeChartSize(el);
-
-    const totals = new Map<string, { id: string; name: string; count: number }>();
-    const monthlyCounts = new Map<string, number>();
-    for (const row of rows) {
-      const publisher = totals.get(row.publisherId) ?? {
-        id: row.publisherId,
-        name: row.publisher,
-        count: 0,
-      };
-      publisher.count += row.count;
-      totals.set(row.publisherId, publisher);
-      const monthKey = `${row.publisherId}:${row.year}-${row.month}`;
-      monthlyCounts.set(monthKey, row.count);
-    }
-    const ordered = [...totals.values()].sort((left, right) => right.count - left.count);
-    const selected = ordered.slice(0, 7);
-    const selectedIds = new Set(selected.map((publisher) => publisher.id));
-    const series = selected.map((publisher) => ({
-      name: publisher.name,
-      type: 'line' as const,
-      showSymbol: false,
-      smooth: false,
-      data: labels.map((label) => {
-        const [month, year] = label.split('/').map(Number);
-        return monthlyCounts.get(`${publisher.id}:${year}-${month}`) ?? 0;
-      }),
-    }));
-    const otherPublishers = ordered.filter((publisher) => !selectedIds.has(publisher.id));
-    if (otherPublishers.length) {
-      series.push({
-        name: 'Demais editoras',
-        type: 'line',
-        showSymbol: false,
-        smooth: false,
-        data: labels.map((label) => {
-          const [month, year] = label.split('/').map(Number);
-          return rows
-            .filter(
-              (row) =>
-                !selectedIds.has(row.publisherId) && row.year === year && row.month === month,
-            )
-            .reduce((sum, row) => sum + row.count, 0);
-        }),
-      });
-    }
-
-    const chart = echarts.init(el);
-    this.charts.push(chart);
-    chart.setOption({
-      backgroundColor: 'transparent',
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: '#20212b',
-        borderColor: '#424451',
-        textStyle: { color: '#f4f4f6' },
-        valueFormatter: (value: unknown) => this.formatChartValue(value, 'count'),
-      },
-      legend: { type: 'scroll', textStyle: { color: '#bbb' } },
-      grid: { left: 16, right: 20, bottom: 56, top: 48, containLabel: true },
-      xAxis: {
-        type: 'category',
-        data: labels,
-        boundaryGap: false,
-        axisLabel: { color: '#aaa', rotate: labels.length > 24 ? 45 : 0, interval: 'auto' },
-        axisLine: { lineStyle: { color: '#444' } },
-      },
-      yAxis: {
-        type: 'value',
-        minInterval: 1,
-        axisLabel: {
-          color: '#aaa',
-          formatter: (value: number) => this.formatChartValue(value, 'count'),
-        },
-        splitLine: { lineStyle: { color: '#222' } },
-      },
-      dataZoom: labels.length > 36 ? [{ type: 'inside' }, { type: 'slider', height: 16 }] : [],
-      series: series.map((item, index) => ({
-        ...item,
-        lineStyle: {
-          color: [
-            '#f15b66',
-            '#4e9fff',
-            '#48c6a8',
-            '#e4b455',
-            '#b48cff',
-            '#f08d47',
-            '#71c6e2',
-            '#aaa',
-          ][index % 8],
-          width: index === 0 ? 3 : 2,
-        },
-      })),
-    });
-  }
-
-  private renderYearlyPrices(): void {
-    const el = this.priceYearChartEl()?.nativeElement;
-    if (!el) return;
-    const rows = this.yearlyPriceRows();
-    const labels = rows.map((row) => row.year);
-    if (!labels.length || !rows.length) return;
-    this.observeChartSize(el);
-    const chart = echarts.init(el);
-    this.charts.push(chart);
-    chart.setOption({
-      backgroundColor: 'transparent',
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: '#20212b',
-        borderColor: '#424451',
-        textStyle: { color: '#f4f4f6' },
-        valueFormatter: (value: unknown) => this.formatChartValue(value, 'currency'),
-      },
-      legend: { textStyle: { color: '#bbb' } },
-      grid: { left: 16, right: 20, bottom: 36, top: 42, containLabel: true },
-      xAxis: {
-        type: 'category',
-        data: labels,
-        axisLabel: { color: '#aaa' },
-        axisLine: { lineStyle: { color: '#444' } },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: {
-          color: '#aaa',
-          formatter: (value: number) => this.formatChartValue(value, 'currency'),
-        },
-        splitLine: { lineStyle: { color: '#222' } },
-      },
-      series: [
-        {
-          name: 'Preço médio',
-          type: 'line',
-          data: rows.map((row) => row.averagePrice),
-          showSymbol: true,
-          connectNulls: false,
-          lineStyle: { color: '#dc2626', width: 3 },
-          itemStyle: { color: '#dc2626' },
-        },
-        {
-          name: 'Mediana',
-          type: 'line',
-          data: rows.map((row) => row.medianPrice),
-          showSymbol: true,
-          connectNulls: false,
-          lineStyle: { color: '#4e9fff', width: 2 },
-          itemStyle: { color: '#4e9fff' },
+          itemStyle: { color: '#ef737b', borderRadius: type === 'bar' ? [4, 4, 0, 0] : 0 },
+          lineStyle: { color: '#ef737b', width: 3 },
+          areaStyle: type === 'line' ? { color: 'rgba(239, 115, 123, 0.16)' } : undefined,
         },
       ],
     });

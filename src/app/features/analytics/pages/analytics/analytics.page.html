@@ -241,7 +241,7 @@
               [text]="true"
               [rounded]="true"
               ariaLabel="Sobre este gráfico"
-              pTooltip="Média aritmética dos preços de capa conhecidos por volume. A lista abaixo informa quantos volumes formam cada média."
+              pTooltip="Média aritmética dos preços de capa conhecidos por volume. O comparativo detalhado informa quantos volumes formam cada média."
               tooltipPosition="top"
             />
           </div>
@@ -274,34 +274,15 @@
           </div>
         </div>
         <p class="muted">
-          Média por volume com preço conhecido; compare também o tamanho da amostra.
+          Barras horizontais ordenadas pelas principais editoras com preço de capa conhecido.
         </p>
         @if (hasPublisherPrices()) {
-          <div class="chart-with-data">
-            <div
-              #publisherChart
-              class="chart"
-              role="img"
-              aria-label="Preço médio de capa por editora"
-            ></div>
-            <aside class="chart-data-panel" aria-label="Resumo de preços por editora">
-              <h4>Amostra por editora</h4>
-              @for (publisher of topPublishers(); track publisher.id) {
-                @if (publisher.averagePrice !== null) {
-                  <div class="chart-data-row">
-                    <span class="chart-data-label">{{ publisher.name }}</span>
-                    <strong>{{
-                      publisher.averagePrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
-                    }}</strong>
-                    <small>
-                      {{ publisher.sampleSize | number: '1.0-0' : 'pt-BR' }} com preço ·
-                      {{ publisher.volumesCount | number: '1.0-0' : 'pt-BR' }} volumes
-                    </small>
-                  </div>
-                }
-              }
-            </aside>
-          </div>
+          <div
+            #publisherChart
+            class="chart"
+            role="img"
+            aria-label="Preço médio de capa por editora"
+          ></div>
         } @else {
           <p class="empty-state">Sem volumes com preço nesse filtro.</p>
         }
@@ -347,7 +328,7 @@
             />
           </div>
         </div>
-        <p class="muted">Percentual de volumes da editora com preço registrado.</p>
+        <p class="muted">Percentual de volumes de cada editora que possuem preço cadastrado.</p>
         @if (hasPublisherPrices()) {
           <div
             #coverageChart
@@ -420,7 +401,10 @@
       <p class="muted">Datas sem mês não são atribuídas a um mês fictício.</p>
     </div>
     <div class="chart-grid">
-      <article class="panel" [class.chart-fullscreen]="fullscreenChart() === 'releases-month'">
+      <article
+        class="panel panel-wide"
+        [class.chart-fullscreen]="fullscreenChart() === 'releases-month'"
+      >
         <div class="panel-heading">
           <div>
             <h3>Lançamentos por mês</h3>
@@ -434,6 +418,18 @@
             />
           </div>
           <div class="chart-actions">
+            @if (availableMonthlyYears().length > 1) {
+              <p-select
+                class="chart-year-filter"
+                [options]="monthlyYearOptions()"
+                optionLabel="label"
+                optionValue="value"
+                [ngModel]="monthlyYearFilter()"
+                (ngModelChange)="setMonthlyYearFilter($event)"
+                placeholder="Ano"
+                [style]="{ 'min-width': '8rem', 'font-size': '0.8rem' }"
+              />
+            }
             <p-button
               icon="pi pi-download"
               [text]="true"
@@ -458,7 +454,7 @@
           </div>
         </div>
         <p class="muted">
-          Volumes com ano e mês de lançamento informados; a situação pode estar desconhecida.
+          Volumes com ano e mês de lançamento informados; use a barra inferior para zoom temporal.
         </p>
         @if (hasMonthlyReleases()) {
           <div #releaseChart class="chart" role="img" aria-label="Lançamentos por mês"></div>
@@ -478,11 +474,23 @@
               [text]="true"
               [rounded]="true"
               ariaLabel="Sobre este gráfico"
-              pTooltip="Cada ponto mostra quantos volumes cada editora lançou no mês; as sete maiores aparecem separadas e as demais são agrupadas."
+              pTooltip="Cada ponto mostra quantos volumes cada editora lançou no mês. Você pode focar em uma editora individual ou comparar as principais."
               tooltipPosition="top"
             />
           </div>
           <div class="chart-actions">
+            @if (timelinePublisherOptions().length > 1) {
+              <p-select
+                class="chart-publisher-filter"
+                [options]="timelinePublisherOptions()"
+                optionLabel="label"
+                optionValue="value"
+                [ngModel]="timelinePublisherFilter()"
+                (ngModelChange)="setTimelinePublisherFilter($event)"
+                placeholder="Editora"
+                [style]="{ 'min-width': '11rem', 'font-size': '0.8rem' }"
+              />
+            }
             <p-button
               icon="pi pi-download"
               [text]="true"
@@ -507,7 +515,8 @@
           </div>
         </div>
         <p class="muted">
-          Exibe até 7 editoras; as demais ficam agrupadas. Datas sem mês não são distribuídas.
+          Linha do tempo mensal por editora. Selecione uma editora para isolar sua série ou navegue
+          pelo zoom temporal.
         </p>
         @if (publisherReleaseMonths().length) {
           <div
@@ -522,7 +531,10 @@
           </p>
         }
       </article>
-      <article class="panel" [class.chart-fullscreen]="fullscreenChart() === 'releases-year'">
+      <article
+        class="panel panel-wide"
+        [class.chart-fullscreen]="fullscreenChart() === 'releases-year'"
+      >
         <div class="panel-heading">
           <div>
             <h3>Lançamentos por ano</h3>
@@ -718,42 +730,51 @@
           série de reajustes de um mesmo volume nem correção pela inflação.
         </p>
         @if (hasYearlyPrices()) {
-          <div class="chart-with-data chart-with-data-tall">
+          <div class="yearly-prices-layout">
             <div
               #priceYearChart
               class="chart chart-tall"
               role="img"
               aria-label="Preço médio e mediano por ano de lançamento"
             ></div>
-            <aside class="chart-data-panel" aria-label="Amostra de volumes por ano">
-              <h4>Amostra por ano</h4>
-              @for (item of pricesByYear(); track item.year) {
-                <div class="chart-data-row">
-                  <span class="chart-data-label">{{ item.year }}</span>
-                  @if (item.sampleSize > 0) {
-                    <strong>{{
-                      item.averagePrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
-                    }}</strong>
-                    <small>
-                      {{ item.sampleSize | number: '1.0-0' : 'pt-BR' }} com preço ·
-                      {{ item.volumesCount | number: '1.0-0' : 'pt-BR' }} volumes
-                    </small>
-                  } @else {
-                    <strong>Sem preço conhecido</strong>
-                    <small
-                      >{{ item.volumesCount | number: '1.0-0' : 'pt-BR' }} volumes no
-                      catálogo</small
+            <div class="yearly-summary-cards" aria-label="Amostra de volumes com preço por ano">
+              @for (item of yearlyPriceRows(); track item.year) {
+                <div class="yearly-card">
+                  <div class="yearly-card-header">
+                    <span class="yearly-card-badge">{{ item.year }}</span>
+                    <span class="yearly-card-sample"
+                      >{{ item.sampleSize | number: '1.0-0' : 'pt-BR' }} com preço</span
                     >
-                  }
+                  </div>
+                  <div class="yearly-card-values">
+                    <div class="yearly-card-metric">
+                      <span class="metric-label">Média</span>
+                      <strong class="metric-val avg">{{
+                        item.averagePrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
+                      }}</strong>
+                    </div>
+                    <div class="yearly-card-metric">
+                      <span class="metric-label">Mediana</span>
+                      <strong class="metric-val median">{{
+                        item.medianPrice | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
+                      }}</strong>
+                    </div>
+                  </div>
+                  <div class="yearly-card-total">
+                    {{ item.volumesCount | number: '1.0-0' : 'pt-BR' }} volumes no catálogo
+                  </div>
                 </div>
               }
-            </aside>
+            </div>
           </div>
         } @else {
           <p class="empty-state">Não há amostra de preços por ano nesse filtro.</p>
         }
       </article>
-      <article class="panel" [class.chart-fullscreen]="fullscreenChart() === 'price-bands'">
+      <article
+        class="panel panel-wide"
+        [class.chart-fullscreen]="fullscreenChart() === 'price-bands'"
+      >
         <div class="panel-heading">
           <div>
             <h3>Distribuição por faixa de preço</h3>

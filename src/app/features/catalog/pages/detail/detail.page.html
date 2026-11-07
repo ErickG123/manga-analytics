@@ -1,211 +1,305 @@
 <section class="container section">
   @if (loading()) {
-    <p role="status" class="muted">Carregando detalhes da obra…</p>
+    <div class="loading-state" role="status">
+      <div class="spinner" aria-hidden="true"></div>
+      <p class="muted">Carregando detalhes da obra…</p>
+    </div>
   } @else if (manga(); as item) {
-    <a routerLink="/catalogo" class="back-link">Voltar ao catálogo</a>
-    <div class="detail-header">
-      @if (coverUrl(); as image) {
-        <img
-          class="detail-cover-image"
-          [src]="image"
-          [alt]="'Capa de ' + item.title"
-          (error)="imageFailed.set(true)"
-          referrerpolicy="no-referrer"
-        />
-      } @else {
-        <div
-          class="detail-cover"
-          [style.--cover-accent]="item.accent"
-          aria-label="Capa não disponível"
-        >
-          <span>{{ item.initials }}</span>
-        </div>
-      }
-      <div>
-        <div class="eyebrow">{{ item.category }} / {{ item.publisher }}</div>
-        <h1>{{ item.title }}</h1>
-        @if (item.originalTitle) {
-          <p class="muted">Título original: {{ item.originalTitle }}</p>
-        }
-        @if (item.description) {
-          <p class="muted">{{ item.description }}</p>
-        }
-        @if (item.author) {
-          <p><strong>Autor:</strong> {{ item.author }}</p>
-        }
-        @if (item.sourceUrl) {
-          <p>
-            <a [href]="item.sourceUrl" target="_blank" rel="noopener noreferrer">Fonte externa</a>
-            @if (item.sourceUpdatedAt) {
-              <span class="muted">
-                · referência cadastrada em {{ item.sourceUpdatedAt | date: 'dd/MM/yyyy' }}</span
-              >
-            }
-          </p>
-        }
-        @if (item.editions?.length) {
-          <p><strong>Situação:</strong> {{ item.editions?.[0]?.status }}</p>
-          <div class="publication-list" aria-label="Publicações e formatos">
-            <strong>Publicações cadastradas</strong>
-            @for (edition of item.editions; track edition.id) {
-              <div class="publication-item" [title]="edition.formatEvidence || ''">
-                <span>{{ edition.name }} · {{ edition.publisher }}</span>
-                <strong>{{ formatTypeLabel(edition.formatType) }}</strong>
-                @if (edition.volumesPerBook && edition.volumesPerBook > 1) {
-                  <span> reúne {{ edition.volumesPerBook }} volumes em cada livro</span>
-                }
-                @if (edition.formatDetails) {
-                  <small>Formato físico: {{ edition.formatDetails }}</small>
-                }
-              </div>
-            }
+    <nav class="detail-nav" aria-label="Navegação da obra">
+      <a routerLink="/catalogo" class="back-link">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M19 12H5M12 19l-7-7 7-7" />
+        </svg>
+        Voltar ao catálogo
+      </a>
+    </nav>
+
+    <header class="detail-header">
+      <div class="detail-cover-wrapper">
+        @if (coverUrl(); as image) {
+          <img
+            class="detail-cover-image"
+            [src]="image"
+            [alt]="'Capa de ' + item.title"
+            (error)="imageFailed.set(true)"
+            referrerpolicy="no-referrer"
+          />
+        } @else {
+          <div
+            class="detail-cover"
+            [style.--cover-accent]="item.accent"
+            aria-label="Capa não disponível"
+          >
+            <span>{{ item.initials }}</span>
           </div>
         }
-        <p><strong>Volumes cadastrados:</strong> {{ item.volumesCount ?? item.volumes.length }}</p>
-        @if (lastRelease(); as last) {
-          <p>
-            <strong>Último lançamento registrado:</strong> {{ last.release.value }} ({{
-              last.release.precision
-            }})
-          </p>
-        }
-        @if (nextRelease(); as next) {
-          <p>
-            <strong>Próximo lançamento previsto:</strong> {{ next.release.value }} ({{
-              next.release.precision
-            }})
-          </p>
-        }
-        @if (item.updatedAt) {
-          <p class="muted">
-            <strong>Cadastro atualizado:</strong> {{ item.updatedAt | date: 'dd/MM/yyyy' }}
-          </p>
-        }
       </div>
-    </div>
 
-    <div class="volume-heading">
-      <div>
-        <h2>Volumes e preços</h2>
-        <p class="muted">{{ filteredVolumes().length }} de {{ item.volumes.length }} volumes</p>
-      </div>
-    </div>
-    <div class="volume-filters" aria-label="Filtros dos volumes">
-      <label
-        >Buscar volume ou ISBN<input
-          type="search"
-          [ngModel]="volumeSearch()"
-          (ngModelChange)="volumeSearch.set($event)"
-      /></label>
-      <label
-        >Situação<select [ngModel]="volumeStatus()" (ngModelChange)="volumeStatus.set($event)">
-          <option value="">Todas</option>
-          <option value="released">Lançado</option>
-          <option value="planned">Previsto</option>
-          <option value="unknown">Desconhecido</option>
-        </select></label
-      >
-      <label
-        >Ano<input
-          type="number"
-          min="1900"
-          [ngModel]="volumeYear()"
-          (ngModelChange)="volumeYear.set($event)"
-      /></label>
-      <label
-        >Preço<select [ngModel]="volumeHasPrice()" (ngModelChange)="volumeHasPrice.set($event)">
-          <option value="">Qualquer</option>
-          <option value="true">Informado</option>
-          <option value="false">Não informado</option>
-        </select></label
-      >
-      <label
-        >Ordenar<select [ngModel]="volumeSort()" (ngModelChange)="volumeSort.set($event)">
-          <option value="number_asc">Número</option>
-          <option value="date_asc">Data crescente</option>
-          <option value="date_desc">Data decrescente</option>
-          <option value="price_asc">Preço crescente</option>
-          <option value="price_desc">Preço decrescente</option>
-        </select></label
-      >
-    </div>
-    <div class="table-scroll">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Volume</th>
-            <th>ISBN</th>
-            <th>Data</th>
-            <th>Situação</th>
-            <th>Preço de capa</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (v of filteredVolumes(); track v.id) {
-            <tr>
-              <td>
-                #{{ v.number
-                }}{{ v.title && v.title !== 'Volume ' + v.number ? ' · ' + v.title : '' }}
-                @if (v.editionName) {
-                  <small class="volume-edition-label">
-                    {{ v.editionName }} · {{ formatTypeLabel(v.editionFormatType || 'unknown') }}
-                  </small>
-                }
-                @if (v.variants?.length) {
-                  <ul class="volume-variants" aria-label="Edições especiais e variantes">
-                    @for (variant of v.variants; track variant.id) {
-                      <li>
-                        <strong>{{ variant.name }}</strong>
-                        @if (variant.release.value) {
-                          <span> · {{ variant.release.value }}</span>
-                        }
-                        @if (variant.coverPriceBrl !== null) {
-                          <span>
-                            ·
-                            {{
-                              variant.coverPriceBrl | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
-                            }}
-                          </span>
-                        }
-                      </li>
-                    }
-                  </ul>
-                }
-              </td>
-              <td>{{ v.isbn13 || 'Não informado' }}</td>
-              <td>
-                {{ v.release.value || 'Não informada' }}
-                <span class="muted"
-                  >({{
-                    v.release.precision === 'day'
-                      ? 'dia'
-                      : v.release.precision === 'month'
-                        ? 'mês'
-                        : v.release.precision === 'year'
-                          ? 'ano'
-                          : 'sem precisão'
-                  }})</span
-                >
-              </td>
-              <td>{{ releaseDescription(v) }}</td>
-              <td>
-                {{
-                  v.coverPriceBrl === null
-                    ? 'Não informado'
-                    : (v.coverPriceBrl | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR')
-                }}
-              </td>
-            </tr>
-          } @empty {
-            <tr>
-              <td colspan="5" class="empty-cell">Nenhum volume corresponde aos filtros.</td>
-            </tr>
+      <div class="detail-info">
+        <div class="eyebrow">{{ item.category }} · {{ item.publisher }}</div>
+        <h1>{{ item.title }}</h1>
+        @if (item.originalTitle) {
+          <p class="original-title">
+            <span class="muted">Título original:</span> {{ item.originalTitle }}
+          </p>
+        }
+        @if (item.description) {
+          <p class="description">{{ item.description }}</p>
+        }
+
+        <div class="detail-meta-grid">
+          @if (item.author) {
+            <div class="meta-card">
+              <span class="meta-label">CRÉDITOS</span>
+              <strong>{{ item.author }}</strong>
+            </div>
           }
-        </tbody>
-      </table>
-    </div>
+          <div class="meta-card">
+            <span class="meta-label">VOLUMES CADASTRADOS</span>
+            <strong class="highlight-number">{{ item.volumesCount ?? item.volumes.length }}</strong>
+          </div>
+          @if (item.editions?.length) {
+            <div class="meta-card">
+              <span class="meta-label">SITUAÇÃO</span>
+              <span class="badge-status">{{ item.editions?.[0]?.status }}</span>
+            </div>
+          }
+          @if (lastRelease(); as last) {
+            <div class="meta-card">
+              <span class="meta-label">ÚLTIMO LANÇAMENTO</span>
+              <strong>{{ last.release.value }}</strong>
+              <small class="muted">({{ last.release.precision }})</small>
+            </div>
+          }
+          @if (nextRelease(); as next) {
+            <div class="meta-card highlight-border">
+              <span class="meta-label">PRÓXIMO PREVISTO</span>
+              <strong class="highlight-accent">{{ next.release.value }}</strong>
+              <small class="muted">({{ next.release.precision }})</small>
+            </div>
+          }
+        </div>
+
+        @if (item.editions?.length) {
+          <div class="publication-list" aria-label="Publicações e formatos">
+            <span class="meta-label">PUBLICAÇÕES CADASTRADAS</span>
+            <div class="publication-items">
+              @for (edition of item.editions; track edition.id) {
+                <div class="publication-item" [title]="edition.formatEvidence || ''">
+                  <div class="publication-main">
+                    <span class="pub-name">{{ edition.name }} · {{ edition.publisher }}</span>
+                    <strong class="pub-badge">{{ formatTypeLabel(edition.formatType) }}</strong>
+                  </div>
+                  @if (edition.volumesPerBook && edition.volumesPerBook > 1) {
+                    <span class="pub-reune"
+                      >reúne {{ edition.volumesPerBook }} volumes em cada livro</span
+                    >
+                  }
+                  @if (edition.formatDetails) {
+                    <small>Formato físico: {{ edition.formatDetails }}</small>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+        }
+
+        <div class="detail-footer-meta">
+          @if (item.sourceUrl) {
+            <a
+              [href]="item.sourceUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="source-link"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <line x1="10" y1="14" x2="21" y2="3"></line>
+              </svg>
+              Fonte externa
+            </a>
+          }
+          @if (item.sourceUpdatedAt) {
+            <span class="muted">
+              Referência cadastrada em {{ item.sourceUpdatedAt | date: 'dd/MM/yyyy' }}
+            </span>
+          }
+          @if (item.updatedAt) {
+            <span class="muted"> Atualizado em {{ item.updatedAt | date: 'dd/MM/yyyy' }} </span>
+          }
+        </div>
+      </div>
+    </header>
+
+    <section class="volumes-section">
+      <div class="volume-heading">
+        <div>
+          <div class="eyebrow">ACERVO DE EDIÇÕES</div>
+          <h2>Volumes e preços<span class="heading-dot">.</span></h2>
+        </div>
+        <div class="volume-count-pill" aria-live="polite">
+          <strong>{{ filteredVolumes().length }}</strong>
+          <span>de {{ item.volumes.length }} volumes</span>
+        </div>
+      </div>
+
+      <div class="volume-filters" aria-label="Filtros dos volumes">
+        <label class="filter-group">
+          <span>Buscar volume ou ISBN</span>
+          <div class="input-with-icon">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="7"></circle>
+              <path d="m16 16 4 4"></path>
+            </svg>
+            <input
+              type="search"
+              placeholder="Ex: 1, 978..."
+              [ngModel]="volumeSearch()"
+              (ngModelChange)="volumeSearch.set($event)"
+            />
+          </div>
+        </label>
+        <label class="filter-group">
+          <span>Situação</span>
+          <select [ngModel]="volumeStatus()" (ngModelChange)="volumeStatus.set($event)">
+            <option value="">Todas as situações</option>
+            <option value="released">Lançado</option>
+            <option value="planned">Previsto</option>
+            <option value="unknown">Desconhecido</option>
+          </select>
+        </label>
+        <label class="filter-group">
+          <span>Ano</span>
+          <input
+            type="number"
+            min="1900"
+            placeholder="Ex: 2024"
+            [ngModel]="volumeYear()"
+            (ngModelChange)="volumeYear.set($event)"
+          />
+        </label>
+        <label class="filter-group">
+          <span>Preço</span>
+          <select [ngModel]="volumeHasPrice()" (ngModelChange)="volumeHasPrice.set($event)">
+            <option value="">Qualquer preço</option>
+            <option value="true">Informado</option>
+            <option value="false">Não informado</option>
+          </select>
+        </label>
+        <label class="filter-group">
+          <span>Ordenar</span>
+          <select [ngModel]="volumeSort()" (ngModelChange)="volumeSort.set($event)">
+            <option value="number_asc">Número do volume</option>
+            <option value="date_asc">Data crescente</option>
+            <option value="date_desc">Data decrescente</option>
+            <option value="price_asc">Preço crescente</option>
+            <option value="price_desc">Preço decrescente</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">Volume</th>
+              <th scope="col">ISBN</th>
+              <th scope="col">Data de lançamento</th>
+              <th scope="col">Situação</th>
+              <th scope="col">Preço de capa</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (v of filteredVolumes(); track v.id) {
+              <tr>
+                <td class="volume-col">
+                  <div class="volume-title-wrap">
+                    <strong class="volume-num">#{{ v.number }}</strong>
+                    @if (v.title && v.title !== 'Volume ' + v.number) {
+                      <span class="volume-name">{{ v.title }}</span>
+                    }
+                  </div>
+                  @if (v.editionName) {
+                    <small class="volume-edition-label">
+                      {{ v.editionName }} · {{ formatTypeLabel(v.editionFormatType || 'unknown') }}
+                    </small>
+                  }
+                  @if (v.variants?.length) {
+                    <ul class="volume-variants" aria-label="Edições especiais e variantes">
+                      @for (variant of v.variants; track variant.id) {
+                        <li>
+                          <span class="variant-bullet"></span>
+                          <strong>{{ variant.name }}</strong>
+                          @if (variant.release.value) {
+                            <span> · {{ variant.release.value }}</span>
+                          }
+                          @if (variant.coverPriceBrl !== null) {
+                            <span class="variant-price">
+                              ·
+                              {{
+                                variant.coverPriceBrl
+                                  | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR'
+                              }}
+                            </span>
+                          }
+                        </li>
+                      }
+                    </ul>
+                  }
+                </td>
+                <td class="isbn-col">
+                  <code>{{ v.isbn13 || 'Não informado' }}</code>
+                </td>
+                <td>
+                  <span class="release-val">{{ v.release.value || 'Não informada' }}</span>
+                  <span class="muted release-precision"
+                    >({{
+                      v.release.precision === 'day'
+                        ? 'dia'
+                        : v.release.precision === 'month'
+                          ? 'mês'
+                          : v.release.precision === 'year'
+                            ? 'ano'
+                            : 'sem precisão'
+                    }})</span
+                  >
+                </td>
+                <td>
+                  <span
+                    class="status-pill"
+                    [class.status-released]="v.release.status === 'released'"
+                    [class.status-planned]="v.release.status === 'planned'"
+                  >
+                    {{ releaseDescription(v) }}
+                  </span>
+                </td>
+                <td class="price-col">
+                  @if (v.coverPriceBrl !== null) {
+                    <strong class="price-value">
+                      {{ v.coverPriceBrl | currency: 'BRL' : 'symbol' : '1.2-2' : 'pt-BR' }}
+                    </strong>
+                  } @else {
+                    <span class="muted">Não informado</span>
+                  }
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="5" class="empty-cell">
+                  Nenhum volume corresponde aos filtros selecionados.
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
   } @else {
-    <h1>Obra não encontrada</h1>
-    <a routerLink="/catalogo">Ver catálogo</a>
+    <div class="empty-state">
+      <h1>Obra não encontrada</h1>
+      <p class="muted">Não conseguimos localizar a obra com o identificador solicitado.</p>
+      <a routerLink="/catalogo" class="btn-primary">Voltar ao catálogo</a>
+    </div>
   }
 </section>
